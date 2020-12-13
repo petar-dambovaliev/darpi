@@ -1,7 +1,5 @@
-mod sync;
-
 use derive_more::{Display, From};
-use http::StatusCode;
+//use http::StatusCode;
 use serde::de;
 use serde_urlencoded;
 use std::{fmt, ops};

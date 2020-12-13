@@ -79,5 +79,4 @@ async fn main() {
             },
         ],
     });
-    println!("123");
 }

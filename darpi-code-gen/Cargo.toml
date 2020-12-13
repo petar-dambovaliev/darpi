@@ -2,8 +2,8 @@
 name = "darpi_code_gen"
 version = "0.0.0"
 authors = ["Petar Dambovaliev <petar.atanasov.1987@gmail.com>"]
-description = "A `cargo generate` template for quick-starting a procedural macro crate"
-keywords = ["template", "proc_macro", "procmacro"]
+description = "code generation for the web api framework darpi"
+keywords = ["darpi-code-gen", "proc_macro", "procmacro"]
 edition = "2018"
 
 [lib]
@@ -13,11 +13,13 @@ proc-macro = true
 quote = "1"
 proc-macro2 = "1.0"
 syn = {version = "1.0", features = ["full"]}
-shaku = "0.5.0"
 md5 = "0.7.0"
+
+
+[dev-dependencies]
 http = "0.2.1"
+serde = { version = "1.0", features = ["derive"] }
 hyper = "0.13.9"
+shaku = "0.5.0"
 tokio = {version = "0.2.11", features = ["full"]}
 darpi-web = { path = "../darpi-web" }
-serde = { version = "1.0", features = ["derive"] }
-
