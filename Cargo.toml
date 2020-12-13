@@ -1,0 +1,20 @@
+[package]
+name = "darpi"
+version = "0.1.0"
+authors = ["Petar Dambovaliev <petar.atanasov.1987@gmail.com>"]
+edition = "2018"
+
+[workspace]
+members = [
+    "darpi-code-gen",
+    "darpi-web"
+]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hyper = "0.13.9"
+futures = "0.3.8"
+tokio = { version = "0.2", features = ["fs", "stream", "sync", "time"] }
+static_assertions = "1.1.0"
+shaku = {version = "0.5.0", features = ["thread_safe"]}
