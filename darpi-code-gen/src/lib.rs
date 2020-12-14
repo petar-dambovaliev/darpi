@@ -4,7 +4,7 @@ use md5;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::{format_ident, quote};
-use syn::export::{ToTokens, TokenStream2};
+use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
@@ -13,51 +13,42 @@ use syn::{
     PathArguments, PathSegment, Type,
 };
 
-fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> (proc_macro2::TokenStream, i32) {
-    (
-        quote! {
-            let #arg_name: #last = match r.uri().query() {
-                Some(q) => {
-                    let q: Result<Query<HelloWorldParams>, QueryPayloadError> =
-                        Query::from_query(q);
-                    Some(q.unwrap())
-                }
-                None => None,
-            };
-        },
-        0,
-    )
+fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
+    quote! {
+        let #arg_name: #last = match r.uri().query() {
+            Some(q) => {
+                let q: Result<Query<HelloWorldParams>, QueryPayloadError> =
+                    Query::from_query(q);
+                Some(q.unwrap())
+            }
+            None => None,
+        };
+    }
 }
 
-fn make_query(arg_name: &Ident, last: &PathSegment) -> (proc_macro2::TokenStream, i32) {
-    (
-        quote! {
-            let #arg_name: Option<#last> = match r.uri().query() {
-                Some(q) => {
-                    let q: Result<Query<HelloWorldParams>, QueryPayloadError> =
-                        Query::from_query(q);
-                    Some(q.unwrap())
-                }
-                None => return Ok(Response::builder().status(http::StatusCode::BAD_REQUEST).body(hyper::Body::from("Missing query params")).unwrap())
-            };
+fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
+    quote! {
+        let #arg_name: Option<#last> = match r.uri().query() {
+            Some(q) => {
+                let q: Result<Query<HelloWorldParams>, QueryPayloadError> =
+                    Query::from_query(q);
+                Some(q.unwrap())
+            }
+            None => return Ok(Response::builder().status(http::StatusCode::BAD_REQUEST).body(hyper::Body::from("Missing query params")).unwrap())
+        };
 
-            let #arg_name = #arg_name.unwrap();
-        },
-        0,
-    )
+        let #arg_name = #arg_name.unwrap();
+    }
 }
 
-fn make_handler_args(tp: &PatType, i: u32) -> (Ident, (proc_macro2::TokenStream, i32)) {
+fn make_handler_args(tp: &PatType, i: u32) -> (Ident, proc_macro2::TokenStream) {
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
 
-    let mut method_resolve = (
-        quote! {
-            let #arg_name: #ttype = module.resolve();
-        },
-        0,
-    );
+    let method_resolve = quote! {
+        let #arg_name: #ttype = module.resolve();
+    };
 
     if let Type::Path(tp) = *ttype.clone() {
         let last = tp.path.segments.last().unwrap();
@@ -88,7 +79,13 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let func = parse_macro_input!(input as ItemFn);
     let attr_args = parse_macro_input!(args as AttributeArgs);
 
-    if attr_args.is_empty() && !func.sig.inputs.is_empty() {
+    let mut is_query = false;
+    func.sig
+        .inputs
+        .iter()
+        .for_each(|arg| is_query = arg.to_token_stream().to_string().contains("Query"));
+
+    if attr_args.is_empty() && !func.sig.inputs.is_empty() && !is_query {
         return Error::new_spanned(func, "Handlers with dependencies require a module")
             .to_compile_error()
             .into();
@@ -121,8 +118,6 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
-            let ttype = &tp.ty;
-
             let (arg_name, method_resolve) = make_handler_args(tp, i);
 
             make_args.push(method_resolve);
@@ -133,8 +128,6 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let return_type = &func.sig.output;
 
-    make_args.sort_by(|a, b| a.1.cmp(&b.1));
-    let make_args: Vec<TokenStream2> = make_args.into_iter().map(|a| a.0).collect();
     let func_name = func.sig.ident;
 
     let fn_call = match module_ident {
@@ -148,8 +141,9 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
         None => {
             quote! {
-                async fn call<T>(_: T) #return_type {
-                   Self::#func_name().await
+                async fn call<T>(r: Request<Body>, _: T) #return_type {
+                    #(#make_args )*
+                   Self::#func_name(#(#give_args ,)*).await
                }
             }
         }
@@ -165,6 +159,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
            #func_copy
        }
     };
+
     output.into()
 }
 
@@ -221,7 +216,29 @@ impl syn::parse::Parse for FieldValue {
         } else if member_ident == "bind" {
             let val: ExprArrayHandler = parse_variant(input)?;
             Expr::ExprArrayHandler(val)
-        } else if member_ident == "route" || member_ident == "address" {
+        } else if member_ident == "route" {
+            let val: ExprLit = parse_variant(input)?;
+
+            let mut illegal_chars = vec![];
+            let allowed = vec!['/', '_', '{', '}', '"'];
+
+            if let Lit::Str(lt) = &val.lit {
+                lt.value().chars().for_each(|ch| {
+                    if !ch.is_alphanumeric() && !allowed.contains(&ch) {
+                        illegal_chars.push(ch);
+                    }
+                });
+            }
+
+            if !illegal_chars.is_empty() {
+                return Err(Error::new(
+                    Span::call_site(),
+                    format!("invalid characters in route: {:?}", illegal_chars),
+                ));
+            }
+
+            Expr::ExprLit(val)
+        } else if member_ident == "address" {
             let val: ExprLit = parse_variant(input)?;
             Expr::ExprLit(val)
         } else if member_ident == "method" {
