@@ -9,9 +9,37 @@ use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
     punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
-    ExprLit, ExprPath, FnArg, GenericArgument, ItemFn, Lit, LitStr, Member, NestedMeta, PatType,
-    PathArguments, PathSegment, Type,
+    ExprLit, ExprPath, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, NestedMeta,
+    PatType, PathArguments, PathSegment, Type,
 };
+
+#[proc_macro_derive(ErrorResponder)]
+pub fn err_responder(input: TokenStream) -> TokenStream {
+    let struct_arg = parse_macro_input!(input as ItemStruct);
+
+    let name = &struct_arg.ident;
+
+    let tokens = quote! {
+        impl darpi_web::ErrorResponder<darpi_web::Body, darpi_web::Body, darpi_web::QueryPayloadError> for #name {
+            fn respond_to_error(
+                _: darpi_web::Request<darpi_web::Body>,
+                e: darpi_web::QueryPayloadError,
+            ) -> darpi_web::Response<darpi_web::Body> {
+                let msg = match e {
+                    darpi_web::QueryPayloadError::Deserialize(de) => de.to_string(),
+                    darpi_web::QueryPayloadError::NotExist => "missing query params".to_string(),
+                };
+
+            darpi_web::Response::builder()
+                .status(http::StatusCode::BAD_REQUEST)
+                .body(darpi_web::Body::from(msg))
+                .expect("this not to happen!")
+            }
+        }
+    };
+
+    tokens.into()
+}
 
 fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     quote! {
@@ -27,17 +55,25 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
 }
 
 fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
+    let inner = &last.arguments;
     quote! {
-        let #arg_name: Option<#last> = match r.uri().query() {
-            Some(q) => {
-                let q: Result<Query<HelloWorldParams>, QueryPayloadError> =
-                    Query::from_query(q);
-                Some(q.unwrap())
-            }
-            None => return Ok(Response::builder().status(http::StatusCode::BAD_REQUEST).body(hyper::Body::from("Missing query params")).unwrap())
+        fn query_error_response<T, R, S, E>(r: darpi_web::Request<R>, e: E) -> darpi_web::Response<S>
+        where
+            T: darpi_web::ErrorResponder<R, S, E>,
+            E: std::error::Error,
+        {
+            T::respond_to_error(r, e)
+        }
+
+        let #arg_name = match r.uri().query() {
+            Some(q) => q,
+            None => return Ok(query_error_response::<#last, darpi_web::Body, darpi_web::Body, darpi_web::QueryPayloadError>(r, darpi_web::QueryPayloadError::NotExist))
         };
 
-        let #arg_name = #arg_name.unwrap();
+        let #arg_name: #last = match Query::from_query(#arg_name) {
+            Ok(q) => q,
+            Err(e) => return Ok(query_error_response::<#last, darpi_web::Body, darpi_web::Body, darpi_web::QueryPayloadError>(r, e))
+        };
     }
 }
 
@@ -159,7 +195,6 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
            #func_copy
        }
     };
-
     output.into()
 }
 
@@ -563,12 +598,12 @@ pub fn run(input: TokenStream) -> TokenStream {
                 let handlers = self.handlers.clone();
 
                 let make_svc = hyper::service::make_service_fn(move |_conn| {
-                    let inner_module = Arc::clone(&module);
-                    let inner_handlers = Arc::clone(&handlers);
+                    let inner_module = std::sync::Arc::clone(&module);
+                    let inner_handlers = std::sync::Arc::clone(&handlers);
                     async move {
-                        Ok::<_, Infallible>(hyper::service::service_fn(move |r: hyper::Request<hyper::Body>| {
-                            let inner_module = Arc::clone(&inner_module);
-                            let inner_handlers = Arc::clone(&inner_handlers);
+                        Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |r: hyper::Request<hyper::Body>| {
+                            let inner_module = std::sync::Arc::clone(&inner_module);
+                            let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
                                 let route = r.uri().path();
                                 let method = r.method();
@@ -589,7 +624,7 @@ pub fn run(input: TokenStream) -> TokenStream {
                     }
                 });
 
-                let server = Server::bind(&address).serve(make_svc);
+                let server = hyper::Server::bind(&address).serve(make_svc);
                 if let Err(e) = server.await {
                     eprintln!("server error: {}", e);
                 }
@@ -602,6 +637,5 @@ pub fn run(input: TokenStream) -> TokenStream {
         #app
         App::new().start().await;
     };
-    //asd
     tokens.into()
 }

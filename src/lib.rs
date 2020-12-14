@@ -1,5 +1,7 @@
 mod app;
 
+pub use hyper::{Body, Request, Response};
+
 #[cfg(test)]
 mod tests {
     #[test]

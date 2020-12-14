@@ -1,8 +1,21 @@
+pub use hyper::{Body, Request, Response};
+
 use derive_more::{Display, From};
 //use http::StatusCode;
 use serde::de;
 use serde_urlencoded;
 use std::{fmt, ops};
+
+pub trait Responder<R, S> {
+    fn respond(&self, req: Request<R>) -> Response<S>;
+}
+
+pub trait ErrorResponder<R, S, E>
+where
+    E: std::error::Error,
+{
+    fn respond_to_error(req: Request<R>, e: E) -> Response<S>;
+}
 
 /// A set of errors that can occur during parsing query strings
 #[derive(Debug, Display, From)]
@@ -10,6 +23,8 @@ pub enum QueryPayloadError {
     /// Deserialize error
     #[display(fmt = "Query deserialize error: {}", _0)]
     Deserialize(serde::de::value::Error),
+    #[display(fmt = "Empty query")]
+    NotExist,
 }
 
 impl std::error::Error for QueryPayloadError {}
@@ -21,10 +36,23 @@ impl std::error::Error for QueryPayloadError {}
 //     }
 // }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, PartialOrd, Ord, Default)]
 pub struct Query<T>(pub T);
 
-impl<T> Query<T> {
+impl<T, R, S, E> ErrorResponder<R, S, E> for Query<T>
+where
+    T: ErrorResponder<R, S, E>,
+    E: std::error::Error,
+{
+    fn respond_to_error(req: Request<R>, e: E) -> Response<S> {
+        T::respond_to_error(req, e)
+    }
+}
+
+impl<T> Query<T>
+where
+    T: Default,
+{
     pub fn into_inner(self) -> T {
         self.0
     }

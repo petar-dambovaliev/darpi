@@ -1,14 +1,11 @@
 extern crate darpi_code_gen;
 
-use darpi_code_gen::{handler, run};
-use darpi_web::{Query, QueryPayloadError};
+use darpi_code_gen::{handler, run, ErrorResponder};
+use darpi_web::{Body, Query, QueryPayloadError, Request, Response};
 use http::Error;
 use http::Method;
-use hyper::{Body, Request, Response, Server};
 use serde::Deserialize;
 use shaku::{module, Component, Interface};
-use std::convert::Infallible;
-use std::sync::Arc;
 
 trait MyComponent: Interface {}
 
@@ -31,7 +28,7 @@ module! {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default, ErrorResponder)]
 pub struct HelloWorldParams {
     hello: String,
 }
