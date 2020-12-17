@@ -15,6 +15,15 @@ members = [
 [dependencies]
 hyper = "0.13.9"
 futures = "0.3.8"
-tokio = { version = "0.2", features = ["fs", "stream", "sync", "time"] }
+tokio = {version = "0.2.11", features = ["full"]}
 static_assertions = "1.1.0"
 shaku = {version = "0.5.0", features = ["thread_safe"]}
+http = "0.2.1"
+serde = { version = "1.0", features = ["derive"] }
+
+darpi-web = { path = "./darpi-web" }
+darpi-code-gen = { path = "./darpi-code-gen" }
+
+[[bin]]
+name = "darpi"
+path = "src/main.rs"

@@ -1,12 +1,9 @@
-extern crate darpi_code_gen;
-
-use darpi_code_gen::{handler, run, QueryType};
-use darpi_web::{Body, ErrResponder, Query, QueryPayloadError, Request, Responder, Response};
+use darpi_code_gen::{handler, run, ErrorResponder};
+use darpi_web::{Body, Query, QueryPayloadError, Request, Response};
+use http::Error;
 use http::Method;
-use http::{Error, StatusCode};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use shaku::{module, Component, Interface};
-use std::convert::Infallible;
 
 trait MyComponent: Interface {}
 
@@ -29,43 +26,13 @@ module! {
     }
 }
 
-#[derive(Deserialize, Serialize, QueryType)]
+#[derive(Deserialize, Default)]
 pub struct HelloWorldParams {
     hello: i32,
 }
 
 #[handler]
 async fn hello_world(q: Query<HelloWorldParams>) -> Result<Response<Body>, Error> {
-    //todo implement custom result type so users can create errors for a response
-    Ok(Response::new(Body::from(format!(
-        "hello_world {}",
-        q.hello
-    ))))
-}
-
-#[derive(Deserialize)]
-pub struct ManualHelloWorldParams {
-    hello: i32,
-}
-
-impl ErrResponder<QueryPayloadError, Body> for ManualHelloWorldParams {
-    fn respond_err(e: QueryPayloadError) -> Response<Body> {
-        let msg = match e {
-            QueryPayloadError::Deserialize(de) => de.to_string(),
-            QueryPayloadError::NotExist => "missing query params".to_string(),
-        };
-
-        Response::builder()
-            .status(http::StatusCode::BAD_REQUEST)
-            .body(darpi_web::Body::from(msg))
-            .expect("this not to happen!")
-    }
-}
-
-#[handler]
-async fn hello_world_manual_query(
-    q: Query<ManualHelloWorldParams>,
-) -> Result<Response<Body>, Error> {
     //todo implement custom result type so users can create errors for a response
     Ok(Response::new(Body::from(format!(
         "hello_world {}",
@@ -82,7 +49,7 @@ async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> Result<Resp
     Ok(Response::new(Body::from(format!("hello_world {}", name))))
 }
 
-#[tokio::test]
+#[tokio::main]
 async fn main() {
     //todo create logging, middleware and web path
     run!({
@@ -98,11 +65,6 @@ async fn main() {
                 route: "/hello_world_optional",
                 method: Method::GET,
                 handler: hello_world_optional
-            },
-            {
-                route: "/hello_world_manual",
-                method: Method::GET,
-                handler: hello_world_manual_query
             },
         ],
     });

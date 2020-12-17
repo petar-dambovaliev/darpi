@@ -1,20 +1,66 @@
-pub use hyper::{Body, Request, Response};
+#![forbid(unsafe_code)]
+mod json;
+mod responder;
 
+pub use hyper::{Body, Request, Response, StatusCode};
+
+use bytes::BytesMut;
 use derive_more::{Display, From};
-//use http::StatusCode;
+use futures::Future;
+use http::header;
 use serde::de;
+use serde::de::DeserializeOwned;
 use serde_urlencoded;
-use std::{fmt, ops};
+use std::convert::Infallible;
+use std::io::Write;
+use std::{fmt, io, ops};
 
-pub trait Responder<R, S> {
-    fn respond(&self, req: Request<R>) -> Response<S>;
+pub trait FromRequest<T, E>
+where
+    T: DeserializeOwned,
+    E: ResponderError,
+{
+    type Future: Future<Output = Result<T, E>>;
+    fn extract(_: Body) -> Self::Future;
 }
 
-pub trait ErrorResponder<R, S, E>
+pub trait Responder<E>
 where
-    E: std::error::Error,
+    E: ResponderError,
 {
-    fn respond_to_error(req: Request<R>, e: E) -> Response<S>;
+    fn status_code(&self) -> StatusCode {
+        StatusCode::OK
+    }
+    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, E>;
+}
+
+pub trait ResponderError: fmt::Display {
+    fn status_code(&self) -> StatusCode {
+        StatusCode::INTERNAL_SERVER_ERROR
+    }
+    fn respond_err(&self, _: &Request<Body>) -> Response<Body> {
+        let mut buf = BytesMut::new();
+        let _ = write!(ByteWriter(&mut buf), "{}", self);
+
+        Response::builder()
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .status(self.status_code())
+            .body(Body::from(buf.to_vec()))
+            .expect("this cannot happen")
+    }
+}
+
+struct ByteWriter<'a>(pub &'a mut BytesMut);
+
+impl<'a> Write for ByteWriter<'a> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 /// A set of errors that can occur during parsing query strings
@@ -27,6 +73,8 @@ pub enum QueryPayloadError {
     NotExist,
 }
 
+impl ResponderError for Infallible {}
+impl ResponderError for QueryPayloadError {}
 impl std::error::Error for QueryPayloadError {}
 
 /// Return `BadRequest` for `QueryPayloadError`
@@ -36,23 +84,17 @@ impl std::error::Error for QueryPayloadError {}
 //     }
 // }
 
-#[derive(PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct Query<T>(pub T);
-
-impl<T, R, S, E> ErrorResponder<R, S, E> for Query<T>
+pub trait ErrResponder<E, B>
 where
-    T: ErrorResponder<R, S, E>,
     E: std::error::Error,
 {
-    fn respond_to_error(req: Request<R>, e: E) -> Response<S> {
-        T::respond_to_error(req, e)
-    }
+    fn respond_err(e: E) -> Response<B>;
 }
 
-impl<T> Query<T>
-where
-    T: Default,
-{
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub struct Query<T>(pub T);
+
+impl<T> Query<T> {
     pub fn into_inner(self) -> T {
         self.0
     }

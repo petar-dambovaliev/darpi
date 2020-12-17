@@ -13,27 +13,23 @@ use syn::{
     PatType, PathArguments, PathSegment, Type,
 };
 
-#[proc_macro_derive(ErrorResponder)]
-pub fn err_responder(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(QueryType)]
+pub fn query(input: TokenStream) -> TokenStream {
     let struct_arg = parse_macro_input!(input as ItemStruct);
-
     let name = &struct_arg.ident;
 
     let tokens = quote! {
-        impl darpi_web::ErrorResponder<darpi_web::Body, darpi_web::Body, darpi_web::QueryPayloadError> for #name {
-            fn respond_to_error(
-                _: darpi_web::Request<darpi_web::Body>,
-                e: darpi_web::QueryPayloadError,
-            ) -> darpi_web::Response<darpi_web::Body> {
+        impl darpi_web::ErrResponder<darpi_web::QueryPayloadError, darpi_web::Body> for #name {
+            fn respond_err(e: darpi_web::QueryPayloadError) -> Response<darpi_web::Body> {
                 let msg = match e {
                     darpi_web::QueryPayloadError::Deserialize(de) => de.to_string(),
                     darpi_web::QueryPayloadError::NotExist => "missing query params".to_string(),
                 };
 
-            darpi_web::Response::builder()
-                .status(http::StatusCode::BAD_REQUEST)
-                .body(darpi_web::Body::from(msg))
-                .expect("this not to happen!")
+                darpi_web::Response::builder()
+                    .status(http::StatusCode::BAD_REQUEST)
+                    .body(darpi_web::Body::from(msg))
+                    .expect("this not to happen!")
             }
         }
     };
@@ -57,22 +53,20 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
 fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     let inner = &last.arguments;
     quote! {
-        fn query_error_response<T, R, S, E>(r: darpi_web::Request<R>, e: E) -> darpi_web::Response<S>
+        fn respond_to_err<T>(e: darpi_web::QueryPayloadError) -> darpi_web::Response<darpi_web::Body>
         where
-            T: darpi_web::ErrorResponder<R, S, E>,
-            E: std::error::Error,
+            T: darpi_web::ErrResponder<darpi_web::QueryPayloadError, darpi_web::Body>,
         {
-            T::respond_to_error(r, e)
+            T::respond_err(e)
         }
-
         let #arg_name = match r.uri().query() {
             Some(q) => q,
-            None => return Ok(query_error_response::<#last, darpi_web::Body, darpi_web::Body, darpi_web::QueryPayloadError>(r, darpi_web::QueryPayloadError::NotExist))
+            None => return Ok(respond_to_err::#inner(darpi_web::QueryPayloadError::NotExist))
         };
 
         let #arg_name: #last = match Query::from_query(#arg_name) {
             Ok(q) => q,
-            Err(e) => return Ok(query_error_response::<#last, darpi_web::Body, darpi_web::Body, darpi_web::QueryPayloadError>(r, e))
+            Err(e) => return Ok(respond_to_err::#inner(e))
         };
     }
 }
@@ -195,6 +189,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
            #func_copy
        }
     };
+
     output.into()
 }
 

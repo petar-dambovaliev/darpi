@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 mod app;
 
 pub use hyper::{Body, Request, Response};
