@@ -6,81 +6,77 @@ use std::convert::Infallible;
 use std::io::Write;
 use std::{fmt, io};
 
-pub trait Responder<E>
-where
-    E: ResponderError,
-{
+pub trait Responder {
     fn status_code(&self) -> StatusCode {
         StatusCode::OK
     }
-    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, E>;
+    fn respond(self, _: &Request<Body>) -> Response<Body>;
 }
 
-impl Responder<Infallible> for &'static str {
-    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, Infallible> {
-        Ok(Response::builder()
+impl Responder for &'static str {
+    fn respond(self, _: &Request<Body>) -> Response<Body> {
+        Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(StatusCode::OK)
             .body(Body::from(self))
-            .unwrap())
+            .unwrap()
     }
 }
 
-impl Responder<Infallible> for &'static [u8] {
-    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, Infallible> {
-        Ok(Response::builder()
+impl Responder for &'static [u8] {
+    fn respond(self, _: &Request<Body>) -> Response<Body> {
+        Response::builder()
             .header(header::CONTENT_TYPE, "application/octet-stream")
             .status(StatusCode::OK)
             .body(Body::from(self))
-            .unwrap())
+            .unwrap()
     }
 }
 
-impl Responder<Infallible> for String {
-    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, Infallible> {
-        Ok(Response::builder()
+impl Responder for String {
+    fn respond(self, _: &Request<Body>) -> Response<Body> {
+        Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(StatusCode::OK)
             .body(Body::from(self))
-            .unwrap())
+            .unwrap()
     }
 }
 
-impl Responder<Infallible> for () {
-    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, Infallible> {
-        Ok(Response::builder()
+impl Responder for () {
+    fn respond(self, _: &Request<Body>) -> Response<Body> {
+        Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(StatusCode::OK)
             .body(Body::empty())
-            .unwrap())
+            .unwrap()
     }
 }
 
-impl<T, E> Responder<E> for Option<T>
+impl<T> Responder for Option<T>
 where
-    E: ResponderError,
-    T: Responder<E>,
+    T: Responder,
 {
-    fn respond(self, r: &Request<Body>) -> Result<Response<Body>, E> {
+    fn respond(self, r: &Request<Body>) -> Response<Body> {
         match self {
             Some(t) => t.respond(r),
-            None => Ok(Response::builder()
+            None => Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::empty())
-                .unwrap()),
+                .unwrap(),
         }
     }
 }
 
-impl<T, E> Responder<E> for Result<T, E>
+impl<T, E> Responder for Result<T, E>
 where
     E: ResponderError,
-    T: Responder<E>,
+    T: Responder,
 {
-    fn respond(self, b: &Request<Body>) -> Result<Response<Body>, E> {
+    fn respond(self, b: &Request<Body>) -> Response<Body> {
         match self {
             Ok(t) => t.respond(b),
-            Err(e) => Err(e),
+            Err(e) => e.respond_err(b),
         }
     }
 }

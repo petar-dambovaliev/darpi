@@ -1,5 +1,6 @@
 use darpi_code_gen::{handler, run, QueryType};
-use darpi_web::request::Query;
+use darpi_web::json::Json;
+use darpi_web::request::{Query, QueryPayloadError};
 use darpi_web::{Body, Request, Response};
 use http::Method;
 use serde::{Deserialize, Serialize};
@@ -32,8 +33,13 @@ pub struct HelloWorldParams {
 }
 
 #[handler]
-async fn hello_world(q: Query<HelloWorldParams>) -> String {
-    format!("hello_world {}", q.hello)
+async fn hello_world(
+    q: Query<HelloWorldParams>,
+) -> Result<Json<HelloWorldParams>, QueryPayloadError> {
+    if q.hello == "petar" {
+        return Err(QueryPayloadError::NotExist);
+    }
+    Ok(Json(q.into_inner()))
 }
 
 #[handler]
@@ -45,9 +51,13 @@ async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
     format!("hello_world {}", name)
 }
 
+#[handler]
+async fn hello_world_no_response() {}
+
 #[tokio::main]
 async fn main() {
     //todo create logging, middleware and web path
+    //todo add handler for missing routes
     run!({
         address: "127.0.0.1:3000",
         module: MyModule,
@@ -61,6 +71,11 @@ async fn main() {
                 route: "/hello_world_optional",
                 method: Method::GET,
                 handler: hello_world_optional
+            },
+            {
+                route: "/hello_world_no_response",
+                method: Method::GET,
+                handler: hello_world_no_response
             },
         ],
     });

@@ -61,17 +61,19 @@ where
     }
 }
 
-impl<T> Responder<serde_json::Error> for Json<T>
+impl<T> Responder for Json<T>
 where
     T: Serialize,
 {
-    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, serde_json::Error> {
-        let body = serde_json::to_string(&self.0)?;
-        Ok(Response::builder()
-            .header(header::CONTENT_TYPE, "application/json")
-            .status(self.status_code())
-            .body(Body::from(body))
-            .expect("this cannot happen"))
+    fn respond(self, r: &Request<Body>) -> Response<Body> {
+        match serde_json::to_string(&self.0) {
+            Ok(body) => Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .status(self.status_code())
+                .body(Body::from(body))
+                .expect("this cannot happen"),
+            Err(e) => e.respond_err(r),
+        }
     }
 }
 
