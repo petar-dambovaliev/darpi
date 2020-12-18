@@ -1,4 +1,4 @@
-use hyper::{body::HttpBody, Body, Request, Response, StatusCode};
+use hyper::{body::HttpBody, Body};
 
 use crate::response::ResponderError;
 use derive_more::{Display, From};
@@ -6,7 +6,6 @@ use futures::Future;
 use serde::de;
 use serde::de::DeserializeOwned;
 use serde_urlencoded;
-use std::io::Write;
 use std::{fmt, ops};
 
 pub trait FromRequest<T, E>
