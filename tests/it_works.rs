@@ -1,7 +1,6 @@
 use darpi_code_gen::{handler, run, QueryType};
 use darpi_web::json::Json;
 use darpi_web::request::{Query, QueryPayloadError};
-use darpi_web::{Body, Request, Response};
 use http::Method;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
@@ -54,7 +53,7 @@ async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
 #[handler]
 async fn hello_world_no_response() {}
 
-#[tokio::main]
+#[tokio::test]
 async fn main() {
     //todo create logging, middleware and web path
     //todo add handler for missing routes

@@ -157,14 +157,12 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     });
 
-    let return_type = &func.sig.output;
-
     let func_name = func.sig.ident;
 
     let fn_call = match module_ident {
         Some(m) => {
             quote! {
-                async fn call(r: Request<Body> ,module: std::sync::Arc<#m>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                async fn call(r: darpi_web::Request<darpi_web::Body> ,module: std::sync::Arc<#m>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
                    use darpi_web::response::Responder;
                    #(#make_args )*
                    Ok(async {
@@ -175,7 +173,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
         None => {
             quote! {
-                async fn call<T>(r: Request<Body>, _: T) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                async fn call<T>(r: darpi_web::Request<darpi_web::Body>, _: T) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
                    use darpi_web::response::Responder;
                     #(#make_args )*
 
@@ -605,6 +603,7 @@ pub fn run(input: TokenStream) -> TokenStream {
                     let inner_handlers = std::sync::Arc::clone(&handlers);
                     async move {
                         Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |r: hyper::Request<hyper::Body>| {
+                            use futures::FutureExt;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
@@ -613,12 +612,17 @@ pub fn run(input: TokenStream) -> TokenStream {
 
                                 let handler = inner_handlers
                                     .iter()
-                                    .find(|h| h.is(route, method))
-                                    .expect(&format!(
-                                        "no such handler for route: {} method: {}",
-                                        route, method
-                                    ));
+                                    .find(|h| h.is(route, method));
 
+                                let handler = match handler {
+                                    Some(s) => s,
+                                    None => return  async {
+                                         Ok::<_, std::convert::Infallible>(hyper::Response::builder()
+                                                .status(hyper::StatusCode::NOT_FOUND)
+                                                .body(hyper::body::Body::empty())
+                                                .unwrap())
+                                    }.await,
+                                };
                                 match handler {
                                     #(#routes_match ,)*
                                 }
@@ -640,5 +644,6 @@ pub fn run(input: TokenStream) -> TokenStream {
         #app
         App::new().start().await;
     };
+
     tokens.into()
 }
