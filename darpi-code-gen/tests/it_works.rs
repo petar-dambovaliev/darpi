@@ -1,12 +1,11 @@
 extern crate darpi_code_gen;
 
-use darpi_code_gen::{handler, run, QueryType};
+use darpi_code_gen::{app, handler, run, QueryType};
 use darpi_web::{Body, ErrResponder, Query, QueryPayloadError, Request, Responder, Response};
 use http::Method;
 use http::{Error, StatusCode};
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
-use std::convert::Infallible;
 
 trait MyComponent: Interface {}
 
@@ -36,7 +35,6 @@ pub struct HelloWorldParams {
 
 #[handler]
 async fn hello_world(q: Query<HelloWorldParams>) -> Result<Response<Body>, Error> {
-    //todo implement custom result type so users can create errors for a response
     Ok(Response::new(Body::from(format!(
         "hello_world {}",
         q.hello

@@ -1,9 +1,11 @@
-use crate::{FromRequest, Responder, ResponderError};
+use crate::request::FromRequest;
+use crate::response::{Responder, ResponderError};
+use crate::Response;
 use derive_more::Display;
 use futures::future::LocalBoxFuture;
 use futures::FutureExt;
 use http::header;
-use http::{Request, Response};
+use http::Request;
 use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -13,9 +15,17 @@ use std::{fmt, ops};
 pub struct Json<T>(pub T);
 
 impl<T> Json<T> {
-    /// Deconstruct to an inner value
     pub fn into_inner(self) -> T {
         self.0
+    }
+
+    async fn deserialize_future(b: Body) -> Result<T, JsonErr>
+    where
+        T: DeserializeOwned,
+    {
+        let full_body = hyper::body::to_bytes(b).await?;
+        let ser: T = serde_json::from_slice(&full_body)?;
+        Ok(ser)
     }
 }
 
@@ -85,15 +95,6 @@ impl From<hyper::Error> for JsonErr {
 
 impl ResponderError for JsonErr {}
 
-async fn deserialize_future<T>(b: Body) -> Result<T, JsonErr>
-where
-    T: DeserializeOwned,
-{
-    let full_body = hyper::body::to_bytes(b).await?;
-    let ser: T = serde_json::from_slice(&full_body)?;
-    Ok(ser)
-}
-
 impl<T: 'static> FromRequest<T, JsonErr> for Json<T>
 where
     T: DeserializeOwned,
@@ -101,7 +102,7 @@ where
     type Future = LocalBoxFuture<'static, Result<T, JsonErr>>;
 
     fn extract(b: Body) -> Self::Future {
-        deserialize_future(b).boxed_local()
+        Self::deserialize_future(b).boxed_local()
     }
 }
 
