@@ -11,7 +11,7 @@ use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
     punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
     ExprLit, ExprPath, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, NestedMeta,
-    PatType, PathArguments, PathSegment, Type,
+    PatType, Path, PathArguments, PathSegment, Type,
 };
 
 #[proc_macro_derive(QueryType)]
@@ -72,6 +72,23 @@ fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream 
     }
 }
 
+fn make_json_body(
+    arg_name: &Ident,
+    path: &Path,
+    inner: &PathArguments,
+) -> proc_macro2::TokenStream {
+    let output = quote! {
+        use darpi_web::request::FromRequest;
+        let (_, body) = r.into_parts();
+
+        let #arg_name: #path = match Json::#inner::extract(body).await {
+            Ok(q) => q,
+            Err(e) => return Ok(e.respond_err())
+        };
+    };
+    output
+}
+
 fn make_handler_args(tp: &PatType, i: u32) -> (Ident, proc_macro2::TokenStream) {
     let ttype = &tp.ty;
 
@@ -87,6 +104,11 @@ fn make_handler_args(tp: &PatType, i: u32) -> (Ident, proc_macro2::TokenStream) 
             let res = make_query(&arg_name, last);
             return (arg_name, res);
         }
+        if last.ident == "Json" {
+            let res = make_json_body(&arg_name, &tp.path, &last.arguments);
+            return (arg_name, res);
+        }
+
         if last.ident == "Option" {
             if let PathArguments::AngleBracketed(ab) = &last.arguments {
                 if let GenericArgument::Type(t) = ab.args.first().unwrap() {
@@ -110,13 +132,13 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let func = parse_macro_input!(input as ItemFn);
     let attr_args = parse_macro_input!(args as AttributeArgs);
 
-    let mut is_query = false;
-    func.sig
-        .inputs
-        .iter()
-        .for_each(|arg| is_query = arg.to_token_stream().to_string().contains("Query"));
+    let mut has_extracted = false;
+    func.sig.inputs.iter().for_each(|arg| {
+        has_extracted = arg.to_token_stream().to_string().contains("Query")
+            || arg.to_token_stream().to_string().contains("Json")
+    });
 
-    if attr_args.is_empty() && !func.sig.inputs.is_empty() && !is_query {
+    if attr_args.is_empty() && !func.sig.inputs.is_empty() && !has_extracted {
         return Error::new_spanned(func, "Handlers with dependencies require a module")
             .to_compile_error()
             .into();
@@ -166,7 +188,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
                    use darpi_web::response::Responder;
                    #(#make_args )*
                    Ok(async {
-                        Self::#func_name(#(#give_args ,)*).await.respond(&r)
+                        Self::#func_name(#(#give_args ,)*).await.respond()
                    }.await)
                }
             }
@@ -178,7 +200,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
                     #(#make_args )*
 
                     Ok(async {
-                        Self::#func_name(#(#give_args ,)*).await.respond(&r)
+                        Self::#func_name(#(#give_args ,)*).await.respond()
                     }.await)
                }
             }

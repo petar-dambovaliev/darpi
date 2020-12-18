@@ -50,13 +50,20 @@ async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
     format!("hello_world {}", name)
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct HelloWorldBody {
+    hello: String,
+}
+
 #[handler]
-async fn hello_world_no_response() {}
+async fn hello_world_json_body(body: Json<HelloWorldBody>) {}
 
 #[tokio::test]
 async fn main() {
     //todo create logging, middleware and web path
     //todo add handler for missing routes
+    // todo use FromRequest in handler to enable user defined types
+    //todo make sure GET handler cannot have json in the args
     run!({
         address: "127.0.0.1:3000",
         module: MyModule,
@@ -72,9 +79,9 @@ async fn main() {
                 handler: hello_world_optional
             },
             {
-                route: "/hello_world_no_response",
-                method: Method::GET,
-                handler: hello_world_no_response
+                route: "/hello_world_json_body",
+                method: Method::POST,
+                handler: hello_world_json_body
             },
         ],
     });

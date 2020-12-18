@@ -10,11 +10,11 @@ pub trait Responder {
     fn status_code(&self) -> StatusCode {
         StatusCode::OK
     }
-    fn respond(self, _: &Request<Body>) -> Response<Body>;
+    fn respond(self) -> Response<Body>;
 }
 
 impl Responder for &'static str {
-    fn respond(self, _: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(StatusCode::OK)
@@ -24,7 +24,7 @@ impl Responder for &'static str {
 }
 
 impl Responder for &'static [u8] {
-    fn respond(self, _: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         Response::builder()
             .header(header::CONTENT_TYPE, "application/octet-stream")
             .status(StatusCode::OK)
@@ -34,7 +34,7 @@ impl Responder for &'static [u8] {
 }
 
 impl Responder for String {
-    fn respond(self, _: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(StatusCode::OK)
@@ -44,7 +44,7 @@ impl Responder for String {
 }
 
 impl Responder for () {
-    fn respond(self, _: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(StatusCode::OK)
@@ -57,9 +57,9 @@ impl<T> Responder for Option<T>
 where
     T: Responder,
 {
-    fn respond(self, r: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         match self {
-            Some(t) => t.respond(r),
+            Some(t) => t.respond(),
             None => Response::builder()
                 .status(StatusCode::NOT_FOUND)
                 .body(Body::empty())
@@ -73,10 +73,10 @@ where
     E: ResponderError,
     T: Responder,
 {
-    fn respond(self, b: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         match self {
-            Ok(t) => t.respond(b),
-            Err(e) => e.respond_err(b),
+            Ok(t) => t.respond(),
+            Err(e) => e.respond_err(),
         }
     }
 }
@@ -85,7 +85,7 @@ pub trait ResponderError: fmt::Display {
     fn status_code(&self) -> StatusCode {
         StatusCode::INTERNAL_SERVER_ERROR
     }
-    fn respond_err(&self, _: &Request<Body>) -> Response<Body> {
+    fn respond_err(&self) -> Response<Body> {
         let mut buf = BytesMut::new();
         let _ = write!(ByteWriter(&mut buf), "{}", self);
 

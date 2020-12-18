@@ -5,10 +5,9 @@ use derive_more::Display;
 use futures::future::LocalBoxFuture;
 use futures::FutureExt;
 use http::header;
-use http::Request;
 use hyper::Body;
 use serde::de::DeserializeOwned;
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Error;
 use std::{fmt, ops};
 
@@ -19,13 +18,26 @@ impl<T> Json<T> {
         self.0
     }
 
-    async fn deserialize_future(b: Body) -> Result<T, JsonErr>
+    async fn deserialize_future(b: Body) -> Result<Json<T>, JsonErr>
     where
         T: DeserializeOwned,
     {
         let full_body = hyper::body::to_bytes(b).await?;
         let ser: T = serde_json::from_slice(&full_body)?;
-        Ok(ser)
+        Ok(Json(ser))
+    }
+}
+
+impl<'de, T> Deserialize<'de> for Json<T>
+where
+    T: DeserializeOwned,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let deser = T::deserialize(deserializer)?.into();
+        Ok(Json(deser))
     }
 }
 
@@ -65,14 +77,14 @@ impl<T> Responder for Json<T>
 where
     T: Serialize,
 {
-    fn respond(self, r: &Request<Body>) -> Response<Body> {
+    fn respond(self) -> Response<Body> {
         match serde_json::to_string(&self.0) {
             Ok(body) => Response::builder()
                 .header(header::CONTENT_TYPE, "application/json")
                 .status(self.status_code())
                 .body(Body::from(body))
                 .expect("this cannot happen"),
-            Err(e) => e.respond_err(r),
+            Err(e) => e.respond_err(),
         }
     }
 }
@@ -97,11 +109,11 @@ impl From<hyper::Error> for JsonErr {
 
 impl ResponderError for JsonErr {}
 
-impl<T: 'static> FromRequest<T, JsonErr> for Json<T>
+impl<T: 'static> FromRequest<Self, JsonErr> for Json<T>
 where
     T: DeserializeOwned,
 {
-    type Future = LocalBoxFuture<'static, Result<T, JsonErr>>;
+    type Future = LocalBoxFuture<'static, Result<Self, JsonErr>>;
 
     fn extract(b: Body) -> Self::Future {
         Self::deserialize_future(b).boxed_local()
