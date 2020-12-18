@@ -1,9 +1,11 @@
 extern crate darpi_code_gen;
 
-use darpi_code_gen::{app, handler, run, QueryType};
-use darpi_web::{Body, ErrResponder, Query, QueryPayloadError, Request, Responder, Response};
+use darpi_code_gen::{handler, run, QueryType};
+use darpi_web::request::{Query, QueryPayloadError};
+use darpi_web::response::ErrResponder;
+use darpi_web::{Body, Request, Response};
+use http::Error;
 use http::Method;
-use http::{Error, StatusCode};
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
 

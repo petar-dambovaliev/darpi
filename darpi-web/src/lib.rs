@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
-mod json;
-mod request;
-mod response;
+pub mod json;
+pub mod request;
+pub mod response;
 
 pub use hyper::{body::HttpBody, Body, Request, Response, StatusCode};

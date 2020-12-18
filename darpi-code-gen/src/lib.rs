@@ -20,11 +20,11 @@ pub fn query(input: TokenStream) -> TokenStream {
     let name = &struct_arg.ident;
 
     let tokens = quote! {
-        impl darpi_web::ErrResponder<darpi_web::QueryPayloadError, darpi_web::Body> for #name {
-            fn respond_err(e: darpi_web::QueryPayloadError) -> Response<darpi_web::Body> {
+        impl darpi_web::response::ErrResponder<darpi_web::request::QueryPayloadError, darpi_web::Body> for #name {
+            fn respond_err(e: darpi_web::request::QueryPayloadError) -> darpi_web::Response<darpi_web::Body> {
                 let msg = match e {
-                    darpi_web::QueryPayloadError::Deserialize(de) => de.to_string(),
-                    darpi_web::QueryPayloadError::NotExist => "missing query params".to_string(),
+                    darpi_web::request::QueryPayloadError::Deserialize(de) => de.to_string(),
+                    darpi_web::request::QueryPayloadError::NotExist => "missing query params".to_string(),
                 };
 
                 darpi_web::Response::builder()
@@ -42,7 +42,7 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
     quote! {
         let #arg_name: #last = match r.uri().query() {
             Some(q) => {
-                let q: Result<Query<HelloWorldParams>, QueryPayloadError> =
+                let q: Result<Query<HelloWorldParams>, darpi_web::request::QueryPayloadError> =
                     Query::from_query(q);
                 Some(q.unwrap())
             }
@@ -54,15 +54,15 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
 fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     let inner = &last.arguments;
     quote! {
-        fn respond_to_err<T>(e: darpi_web::QueryPayloadError) -> darpi_web::Response<darpi_web::Body>
+        fn respond_to_err<T>(e: darpi_web::request::QueryPayloadError) -> darpi_web::Response<darpi_web::Body>
         where
-            T: darpi_web::ErrResponder<darpi_web::QueryPayloadError, darpi_web::Body>,
+            T: darpi_web::response::ErrResponder<darpi_web::request::QueryPayloadError, darpi_web::Body>,
         {
             T::respond_err(e)
         }
         let #arg_name = match r.uri().query() {
             Some(q) => q,
-            None => return Ok(respond_to_err::#inner(darpi_web::QueryPayloadError::NotExist))
+            None => return Ok(respond_to_err::#inner(darpi_web::request::QueryPayloadError::NotExist))
         };
 
         let #arg_name: #last = match Query::from_query(#arg_name) {
