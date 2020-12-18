@@ -46,6 +46,16 @@ impl Responder<Infallible> for String {
     }
 }
 
+impl Responder<Infallible> for () {
+    fn respond(self, _: &Request<Body>) -> Result<Response<Body>, Infallible> {
+        Ok(Response::builder()
+            .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+            .status(StatusCode::OK)
+            .body(Body::empty())
+            .unwrap())
+    }
+}
+
 impl<T, E> Responder<E> for Option<T>
 where
     E: ResponderError,

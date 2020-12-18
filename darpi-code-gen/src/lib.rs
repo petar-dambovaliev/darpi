@@ -164,17 +164,19 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let fn_call = match module_ident {
         Some(m) => {
             quote! {
-                async fn call(r: Request<Body> ,module: std::sync::Arc<#m>) #return_type {
+                async fn call(r: Request<Body> ,module: std::sync::Arc<#m>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                    use darpi_web::response::Responder;
                    #(#make_args )*
-                   Self::#func_name(#(#give_args ,)*).await
+                   Self::#func_name(#(#give_args ,)*).await.respond(&r)
                }
             }
         }
         None => {
             quote! {
-                async fn call<T>(r: Request<Body>, _: T) #return_type {
+                async fn call<T>(r: Request<Body>, _: T) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                    use darpi_web::response::Responder;
                     #(#make_args )*
-                   Self::#func_name(#(#give_args ,)*).await
+                   Self::#func_name(#(#give_args ,)*).await.respond(&r)
                }
             }
         }

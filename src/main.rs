@@ -1,8 +1,8 @@
-use darpi_code_gen::{handler, run, ErrorResponder};
-use darpi_web::{Body, Query, QueryPayloadError, Request, Response};
-use http::Error;
+use darpi_code_gen::{handler, run, QueryType};
+use darpi_web::request::Query;
+use darpi_web::{Body, Request, Response};
 use http::Method;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
 
 trait MyComponent: Interface {}
@@ -26,27 +26,23 @@ module! {
     }
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Serialize, QueryType)]
 pub struct HelloWorldParams {
-    hello: i32,
+    hello: String,
 }
 
 #[handler]
-async fn hello_world(q: Query<HelloWorldParams>) -> Result<Response<Body>, Error> {
-    //todo implement custom result type so users can create errors for a response
-    Ok(Response::new(Body::from(format!(
-        "hello_world {}",
-        q.hello
-    ))))
+async fn hello_world(q: Query<HelloWorldParams>) -> String {
+    format!("hello_world {}", q.hello)
 }
 
 #[handler]
-async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> Result<Response<Body>, Error> {
+async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
     let name = match &q {
-        Some(s) => s.hello,
-        None => 123,
+        Some(hw) => &hw.hello,
+        None => "nobody",
     };
-    Ok(Response::new(Body::from(format!("hello_world {}", name))))
+    format!("hello_world {}", name)
 }
 
 #[tokio::main]
