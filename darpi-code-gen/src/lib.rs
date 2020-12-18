@@ -79,6 +79,7 @@ fn make_json_body(
 ) -> proc_macro2::TokenStream {
     let output = quote! {
         use darpi_web::request::FromRequest;
+        use darpi_web::response::ResponderError;
         let (_, body) = r.into_parts();
 
         let #arg_name: #path = match Json::#inner::extract(body).await {
@@ -133,9 +134,11 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let attr_args = parse_macro_input!(args as AttributeArgs);
 
     let mut has_extracted = false;
+    let mut expects_body = false;
     func.sig.inputs.iter().for_each(|arg| {
         has_extracted = arg.to_token_stream().to_string().contains("Query")
-            || arg.to_token_stream().to_string().contains("Json")
+            || arg.to_token_stream().to_string().contains("Json");
+        expects_body = arg.to_token_stream().to_string().contains("Json");
     });
 
     if attr_args.is_empty() && !func.sig.inputs.is_empty() && !has_extracted {
@@ -180,6 +183,15 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     });
 
     let func_name = func.sig.ident;
+    let no_body = format_ident!("NoBody_{}", func_name);
+
+    let body_checker = if expects_body {
+        quote! {}
+    } else {
+        quote! {
+            impl #no_body for #func_name {}
+        }
+    };
 
     let fn_call = match module_ident {
         Some(m) => {
@@ -209,15 +221,16 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
+        trait #no_body {}
         pub struct #func_name;
-
+        #body_checker
         impl #func_name {
            #fn_call
            //user defined function
            #func_copy
        }
     };
-
+    //panic!("{}", output.to_string());
     output.into()
 }
 
@@ -523,6 +536,8 @@ pub fn run(input: TokenStream) -> TokenStream {
 
     let mut routes = vec![];
     let mut routes_match = vec![];
+    let mut body_assertions = vec![];
+    let mut body_assertions_def = vec![];
 
     elements.iter().for_each(|el| {
         let handler = el
@@ -544,6 +559,17 @@ pub fn run(input: TokenStream) -> TokenStream {
             .path
             .get_ident()
             .expect("cannot get handler path ident");
+
+        let method_name = el.method.path.segments.last().unwrap();
+
+        if method_name.ident == "GET" {
+            let f_name = format_ident!("assert_no_body_{}", variant_value);
+            let t_name = format_ident!("NoBody_{}", variant_value);
+            body_assertions_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
+            body_assertions.push(quote! {
+                #f_name::<#variant_value>();
+            });
+        }
 
         is.push(quote! {
             RoutePossibilities::#variant_name => {
@@ -595,6 +621,8 @@ pub fn run(input: TokenStream) -> TokenStream {
     };
 
     let app = quote! {
+        #(#body_assertions_def )*
+
          pub struct App {
             #module_def
             handlers: std::sync::Arc<[RoutePossibilities; #handler_len]>,
@@ -603,6 +631,7 @@ pub fn run(input: TokenStream) -> TokenStream {
 
         impl App {
             pub fn new() -> Self {
+                #(#body_assertions;)*
                 let address: std::net::SocketAddr = #address_value
                     .parse()
                     .expect(&format!("invalid server address: `{}`", #address_value));
@@ -666,6 +695,6 @@ pub fn run(input: TokenStream) -> TokenStream {
         #app
         App::new().start().await;
     };
-
+    //panic!("{}", tokens.to_string());
     tokens.into()
 }

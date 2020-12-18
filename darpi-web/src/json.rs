@@ -2,7 +2,7 @@ use crate::request::FromRequest;
 use crate::response::{Responder, ResponderError};
 use crate::Response;
 use derive_more::Display;
-use futures::future::LocalBoxFuture;
+use futures::future::{BoxFuture, LocalBoxFuture};
 use futures::FutureExt;
 use http::header;
 use hyper::Body;
@@ -113,10 +113,10 @@ impl<T: 'static> FromRequest<Self, JsonErr> for Json<T>
 where
     T: DeserializeOwned,
 {
-    type Future = LocalBoxFuture<'static, Result<Self, JsonErr>>;
+    type Future = BoxFuture<'static, Result<Self, JsonErr>>;
 
     fn extract(b: Body) -> Self::Future {
-        Self::deserialize_future(b).boxed_local()
+        Self::deserialize_future(b).boxed()
     }
 }
 

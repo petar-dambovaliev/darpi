@@ -56,7 +56,9 @@ pub struct HelloWorldBody {
 }
 
 #[handler]
-async fn hello_world_json_body(body: Json<HelloWorldBody>) {}
+async fn hello_world_json_body(body: Json<HelloWorldBody>) -> Json<HelloWorldBody> {
+    body
+}
 
 #[tokio::test]
 async fn main() {
