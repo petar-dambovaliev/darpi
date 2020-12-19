@@ -9,9 +9,10 @@ use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
-    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
-    ExprLit, ExprPath, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, NestedMeta,
-    PatType, Path, PathArguments, PathSegment, Type,
+    punctuated::Punctuated, token::Brace, token::Colon, token::Colon2, token::Comma,
+    AngleBracketedGenericArguments, AttributeArgs, Error, ExprLit, ExprPath, FnArg,
+    GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, NestedMeta, PatType, Path,
+    PathArguments, PathSegment, Type, TypePath,
 };
 
 #[proc_macro_derive(QueryType)]
@@ -90,24 +91,28 @@ fn make_json_body(
     output
 }
 
-fn make_handler_args(tp: &PatType, i: u32) -> (Ident, proc_macro2::TokenStream) {
+fn make_handler_args(
+    tp: &PatType,
+    i: u32,
+    module_ident: &Ident,
+) -> (Ident, proc_macro2::TokenStream, bool) {
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
 
     let method_resolve = quote! {
-        let #arg_name: #ttype = module.resolve();
+        let #arg_name: #ttype = #module_ident.resolve();
     };
 
     if let Type::Path(tp) = *ttype.clone() {
         let last = tp.path.segments.last().unwrap();
         if last.ident == "Query" {
             let res = make_query(&arg_name, last);
-            return (arg_name, res);
+            return (arg_name, res, false);
         }
         if last.ident == "Json" {
             let res = make_json_body(&arg_name, &tp.path, &last.arguments);
-            return (arg_name, res);
+            return (arg_name, res, false);
         }
 
         if last.ident == "Option" {
@@ -117,7 +122,7 @@ fn make_handler_args(tp: &PatType, i: u32) -> (Ident, proc_macro2::TokenStream) 
                         let first = tp.path.segments.first().unwrap();
                         if first.ident == "Query" {
                             let res = make_optional_query(&arg_name, last);
-                            return (arg_name, res);
+                            return (arg_name, res, false);
                         }
                     }
                 }
@@ -125,7 +130,7 @@ fn make_handler_args(tp: &PatType, i: u32) -> (Ident, proc_macro2::TokenStream) 
         }
     }
 
-    (arg_name, method_resolve)
+    (arg_name, method_resolve, true)
 }
 
 #[proc_macro_attribute]
@@ -141,25 +146,11 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         expects_body = arg.to_token_stream().to_string().contains("Json");
     });
 
-    if attr_args.is_empty() && !func.sig.inputs.is_empty() && !has_extracted {
-        return Error::new_spanned(func, "Handlers with dependencies require a module")
+    if attr_args.len() > 0 {
+        return Error::new_spanned(func, "Arguments not supported")
             .to_compile_error()
             .into();
     }
-
-    if attr_args.len() > 1 {
-        return Error::new_spanned(func, "There should be 0 or 1 arguments")
-            .to_compile_error()
-            .into();
-    }
-
-    let mut module_ident = None;
-
-    attr_args.iter().for_each(|arg| {
-        if let NestedMeta::Meta(meta) = arg {
-            module_ident = meta.path().get_ident();
-        }
-    });
 
     if func.sig.asyncness.is_none() {
         return Error::new_spanned(func, "Only Async functions can be used as handlers")
@@ -170,17 +161,41 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let func_copy = func.clone();
     let mut make_args = vec![];
     let mut give_args = vec![];
+    let mut module_args = vec![];
+    let mut module_full_req = vec![];
     let mut i = 0_u32;
 
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
-            let (arg_name, method_resolve) = make_handler_args(tp, i);
+            let module_ident = format_ident!("module_{}", i);
+            let (arg_name, method_resolve, is_module) = make_handler_args(tp, i, &module_ident);
 
+            if is_module {
+                if let Type::Path(tp) = *tp.ty.clone() {
+                    let segment = tp.path.segments.first().unwrap();
+                    if let PathArguments::AngleBracketed(ab) = &segment.arguments {
+                        let user_type = &ab.args;
+                        module_full_req.push(quote! {
+                            std::sync::Arc<impl shaku::HasComponent<#user_type + 'static>>
+                        });
+                        module_full_req.push(quote! {+});
+                        module_args.push(quote! {
+                            #module_ident: std::sync::Arc<impl shaku::HasComponent<#user_type + 'static>>
+                        });
+                    }
+                }
+            }
             make_args.push(method_resolve);
             give_args.push(quote! {#arg_name});
             i += 1;
         }
     });
+
+    if let Some(last) = module_full_req.last() {
+        if last.to_string() == quote! {+}.to_string() {
+            module_full_req.pop();
+        }
+    }
 
     let func_name = func.sig.ident;
     let no_body = format_ident!("NoBody_{}", func_name);
@@ -193,28 +208,47 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     };
 
-    let fn_call = match module_ident {
-        Some(m) => {
-            quote! {
-                async fn call(r: darpi_web::Request<darpi_web::Body> ,module: std::sync::Arc<#m>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
-                   use darpi_web::response::Responder;
-                   #(#make_args )*
-                   Ok(async {
-                        Self::#func_name(#(#give_args ,)*).await.respond()
-                   }.await)
-               }
+    let fn_call = if !module_args.is_empty() {
+        quote! {
+            async fn call(r: darpi_web::Request<darpi_web::Body>, #(#module_args )*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+               use darpi_web::response::Responder;
+
+               #(#make_args )*
+               Ok(async {
+                    Self::#func_name(#(#give_args ,)*).await.respond()
+               }.await)
+           }
+        }
+    } else {
+        quote! {
+            async fn call<T>(r: darpi_web::Request<darpi_web::Body>, m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+               use darpi_web::response::Responder;
+
+               #(#make_args )*
+               Ok(async {
+                    Self::#func_name(#(#give_args ,)*).await.respond()
+               }.await)
+           }
+        }
+    };
+
+    let mut inject_args = vec![];
+    module_full_req
+        .iter()
+        .for_each(|_| inject_args.push(quote! {m.clone()}));
+
+    let fn_expand_call = if !module_full_req.is_empty() {
+        quote! {
+            #[inline]
+            async fn expand_call(r: darpi_web::Request<darpi_web::Body>, m: #(#module_full_req)*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                Self::call(r, #(#inject_args),*).await
             }
         }
-        None => {
-            quote! {
-                async fn call<T>(r: darpi_web::Request<darpi_web::Body>, _: T) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
-                   use darpi_web::response::Responder;
-                    #(#make_args )*
-
-                    Ok(async {
-                        Self::#func_name(#(#give_args ,)*).await.respond()
-                    }.await)
-               }
+    } else {
+        quote! {
+            #[inline]
+            async fn expand_call<T>(r: darpi_web::Request<darpi_web::Body>, m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                Self::call(r, m).await
             }
         }
     };
@@ -222,15 +256,16 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
         trait #no_body {}
+        #[allow(non_camel_case_types, missing_docs)]
         pub struct #func_name;
         #body_checker
         impl #func_name {
            #fn_call
            //user defined function
            #func_copy
+           #fn_expand_call
        }
     };
-    //panic!("{}", output.to_string());
     output.into()
 }
 
@@ -582,7 +617,9 @@ pub fn run(input: TokenStream) -> TokenStream {
         });
 
         routes_match.push(quote! {
-            RoutePossibilities::#variant_name => #variant_value::call(r, inner_module).await
+            RoutePossibilities::#variant_name => {
+                #variant_value::expand_call(r, inner_module).await
+            }
         });
     });
 
@@ -695,6 +732,5 @@ pub fn run(input: TokenStream) -> TokenStream {
         #app
         App::new().start().await;
     };
-    //panic!("{}", tokens.to_string());
     tokens.into()
 }

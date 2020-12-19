@@ -1,27 +1,28 @@
 use darpi_code_gen::{handler, run, QueryType};
 use darpi_web::json::Json;
 use darpi_web::request::{Query, QueryPayloadError};
-use http::Method;
+use http::{Method, Request};
+use hyper::Body;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
+use std::sync::Arc;
 
-trait MyComponent: Interface {}
-
-#[derive(Component)]
-#[shaku(interface = MyComponent)]
-struct MyComponentImpl;
-impl MyComponent for MyComponentImpl {}
-
-trait MyComponentMut: Interface {}
+trait Logger: Interface {
+    fn log(&self, arg: &dyn std::fmt::Debug);
+}
 
 #[derive(Component)]
-#[shaku(interface = MyComponentMut)]
-struct MyComponentImplMut;
-impl MyComponentMut for MyComponentImplMut {}
+#[shaku(interface = Logger)]
+struct MyLogger;
+impl Logger for MyLogger {
+    fn log(&self, arg: &dyn std::fmt::Debug) {
+        println!("{:#?}", arg)
+    }
+}
 
 module! {
     MyModule {
-        components = [MyComponentImpl, MyComponentImplMut],
+        components = [MyLogger],
         providers = [],
     }
 }
@@ -35,7 +36,7 @@ pub struct HelloWorldParams {
 async fn hello_world(
     q: Query<HelloWorldParams>,
 ) -> Result<Json<HelloWorldParams>, QueryPayloadError> {
-    if q.hello == "petar" {
+    if q.hello == "john" {
         return Err(QueryPayloadError::NotExist);
     }
     Ok(Json(q.into_inner()))
@@ -50,22 +51,24 @@ async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
     format!("hello_world {}", name)
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct HelloWorldBody {
     hello: String,
 }
 
 #[handler]
-async fn hello_world_json_body(body: Json<HelloWorldBody>) -> Json<HelloWorldBody> {
+async fn hello_world_json_body(
+    body: Json<HelloWorldBody>,
+    logger: Arc<dyn Logger>,
+) -> Json<HelloWorldBody> {
+    logger.log(&body);
     body
 }
 
 #[tokio::test]
 async fn main() {
     //todo create logging, middleware and web path
-    //todo add handler for missing routes
     // todo use FromRequest in handler to enable user defined types
-    //todo make sure GET handler cannot have json in the args
     run!({
         address: "127.0.0.1:3000",
         module: MyModule,

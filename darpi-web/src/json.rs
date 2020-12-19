@@ -2,7 +2,7 @@ use crate::request::FromRequest;
 use crate::response::{Responder, ResponderError};
 use crate::Response;
 use derive_more::Display;
-use futures::future::{BoxFuture, LocalBoxFuture};
+use futures::future::BoxFuture;
 use futures::FutureExt;
 use http::header;
 use hyper::Body;

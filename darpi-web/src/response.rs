@@ -1,4 +1,4 @@
-use hyper::{Body, Request, Response, StatusCode};
+use hyper::{Body, Response, StatusCode};
 
 use bytes::BytesMut;
 use http::header;
