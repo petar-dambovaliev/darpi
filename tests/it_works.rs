@@ -1,8 +1,7 @@
 use darpi_code_gen::{handler, run, QueryType};
 use darpi_web::json::Json;
 use darpi_web::request::{Query, QueryPayloadError};
-use http::{Method, Request};
-use hyper::Body;
+use http::Method;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
 use std::sync::Arc;

@@ -9,10 +9,9 @@ use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
-    punctuated::Punctuated, token::Brace, token::Colon, token::Colon2, token::Comma,
-    AngleBracketedGenericArguments, AttributeArgs, Error, ExprLit, ExprPath, FnArg,
-    GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, NestedMeta, PatType, Path,
-    PathArguments, PathSegment, Type, TypePath,
+    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
+    ExprLit, ExprPath, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, PatType,
+    Path, PathArguments, PathSegment, Type,
 };
 
 #[proc_macro_derive(QueryType)]
