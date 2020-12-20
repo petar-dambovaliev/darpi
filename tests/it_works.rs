@@ -1,6 +1,6 @@
 use darpi_code_gen::{handler, run, QueryType};
 use darpi_web::json::Json;
-use darpi_web::request::{Query, QueryPayloadError};
+use darpi_web::request::{Path, Query, QueryPayloadError};
 use http::Method;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
@@ -49,6 +49,11 @@ async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
     };
     format!("hello_world {}", name)
 }
+
+// #[handler]
+// async fn hello_world_path(Path((id, name)): Path<(String, u32)>) -> String {
+//     format!("hello_world id: {} name: {}", id, name)
+// }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct HelloWorldBody {

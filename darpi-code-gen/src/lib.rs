@@ -78,9 +78,13 @@ fn make_json_body(
     inner: &PathArguments,
 ) -> proc_macro2::TokenStream {
     let output = quote! {
-        use darpi_web::request::FromRequest;
+        use darpi_web::request::FromRequestBody;
         use darpi_web::response::ResponderError;
         let (_, body) = r.into_parts();
+
+        if let Err(e) = Json::#inner::assert_content_size(&body) {
+            return Ok(e.respond_err());
+        }
 
         let #arg_name: #path = match Json::#inner::extract(body).await {
             Ok(q) => q,
@@ -265,6 +269,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
            #fn_expand_call
        }
     };
+    //panic!("{}", output.to_string());
     output.into()
 }
 

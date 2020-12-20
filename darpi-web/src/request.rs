@@ -3,14 +3,14 @@ use hyper::{body::HttpBody, Body};
 use crate::response::ResponderError;
 use derive_more::{Display, From};
 use futures::Future;
+use http::Request;
 use serde::de;
 use serde::de::DeserializeOwned;
 use serde_urlencoded;
 use std::{fmt, ops};
 
-pub trait FromRequest<T, E>
+pub trait FromRequestBody<T, E>
 where
-    T: DeserializeOwned,
     E: ResponderError,
 {
     type Future: Future<Output = Result<T, E>>;
@@ -155,3 +155,11 @@ impl<T: fmt::Display> fmt::Display for Path<T> {
         self.0.fmt(f)
     }
 }
+
+#[derive(Debug, Display, From)]
+pub enum PathError {
+    #[display(fmt = "Path deserialize error: {}", _0)]
+    Deserialize(String),
+}
+
+impl ResponderError for PathError {}

@@ -1,4 +1,4 @@
-use crate::request::FromRequest;
+use crate::request::FromRequestBody;
 use crate::response::{Responder, ResponderError};
 use crate::Response;
 use derive_more::Display;
@@ -109,7 +109,7 @@ impl From<hyper::Error> for JsonErr {
 
 impl ResponderError for JsonErr {}
 
-impl<T: 'static> FromRequest<Self, JsonErr> for Json<T>
+impl<T: 'static> FromRequestBody<Self, JsonErr> for Json<T>
 where
     T: DeserializeOwned,
 {
