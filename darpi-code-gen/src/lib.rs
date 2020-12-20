@@ -3,16 +3,54 @@ extern crate proc_macro;
 
 use md5;
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span};
+use proc_macro2::{Ident, Span, TokenTree};
 use quote::{format_ident, quote};
 use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
-    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
-    ExprLit, ExprPath, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member, PatType,
-    Path, PathArguments, PathSegment, Type,
+    punctuated::Punctuated, token, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
+    ExprLit, ExprPath, Fields, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member,
+    PatType, Path, PathArguments, PathSegment, Type,
 };
+
+#[proc_macro_derive(PathType)]
+pub fn path(input: TokenStream) -> TokenStream {
+    let struct_arg = parse_macro_input!(input as ItemStruct);
+    let name = &struct_arg.ident;
+
+    if let Fields::Named(named) = struct_arg.fields {
+        let mut deser_funcs = vec![];
+        named.named.iter().for_each(|f| {
+            let f_name = format_ident!("de_{}", f.ident.as_ref().unwrap());
+            let rtype = &f.ty;
+            deser_funcs.push(quote! {
+                fn #f_name(string: &str, start: u32, end: u32) -> #rtype {
+
+                }
+            });
+        });
+        let tokens = quote! {
+            impl darpi_web::response::ErrResponder<darpi_web::request::PathError, darpi_web::Body> for #name {
+                fn respond_err(e: darpi_web::request::PathError) -> darpi_web::Response<darpi_web::Body> {
+                    let msg = match e {
+                        darpi_web::request::QueryPayloadError::Deserialize(msg) => msg,
+                    };
+
+                    darpi_web::Response::builder()
+                        .status(http::StatusCode::BAD_REQUEST)
+                        .body(darpi_web::Body::from(msg))
+                        .expect("this not to happen!")
+                }
+            }
+        };
+
+        return tokens.into();
+    }
+    Error::new_spanned(struct_arg, "Tuple structs not supported")
+        .to_compile_error()
+        .into()
+}
 
 #[proc_macro_derive(QueryType)]
 pub fn query(input: TokenStream) -> TokenStream {
@@ -279,7 +317,83 @@ enum Expr {
     Module(ExprPath),
     ExprLit(ExprLit),
     ExprPath(ExprPath),
+    Route(RouteValue),
 }
+
+#[derive(Debug, Clone)]
+struct RouteValue {
+    values: Vec<proc_macro2::TokenTree>,
+}
+
+impl syn::parse::Parse for RouteValue {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let mut values = vec![];
+        if !input.peek(token::Div) {
+            return Err(Error::new(
+                Span::call_site(),
+                "routes must start with slash: `/`",
+            ));
+        }
+
+        let _: token::Div = input.parse()?;
+
+        while !input.is_empty() {
+            if input.peek(token::Brace) {
+                let g: proc_macro2::Group = input.parse()?;
+                values.push(TokenTree::Group(g));
+                continue;
+            }
+
+            let i: Ident = input.parse()?;
+            values.push(TokenTree::Ident(i));
+            if input.peek(token::Div) {
+                let _: token::Div = input.parse()?;
+            }
+        }
+        Ok(Self { values })
+    }
+}
+
+// impl From<ExprLit> for RouteValue {
+//     fn from(expr: ExprLit) -> Self {
+//         let input = expr.to_token_stream().to_string();
+//
+//         let mut path = vec![];
+//         let mut args = vec![];
+//         let mut cur_path = String::new();
+//         let mut cur_arg = String::new();
+//         let mut inside: bool;
+//         let (mut saw_inner, mut saw_outer) = (false, false);
+//
+//         for ch in input.chars() {
+//             if ch == '{' {
+//                 saw_inner = true;
+//                 if !cur_path.is_empty() {
+//                     path.push(cur_path);
+//                     cur_path = String::new();
+//                 }
+//             } else if ch == '}' {
+//                 saw_outer = true;
+//                 saw_inner = false;
+//
+//                 if !cur_arg.is_empty() {
+//                     args.push(cur_arg);
+//                     cur_arg = String::new();
+//                 }
+//             }
+//
+//             inside = saw_inner && !saw_outer;
+//
+//             if inside {
+//                 cur_arg.push(ch);
+//                 continue;
+//             }
+//             cur_path.push(ch);
+//         }
+//
+//         Self { path, args }
+//     }
+// }
 
 #[derive(Debug)]
 struct FieldValue {
@@ -329,25 +443,13 @@ impl syn::parse::Parse for FieldValue {
         } else if member_ident == "route" {
             let val: ExprLit = parse_variant(input)?;
 
-            let mut illegal_chars = vec![];
-            let allowed = vec!['/', '_', '{', '}', '"'];
-
-            if let Lit::Str(lt) = &val.lit {
-                lt.value().chars().for_each(|ch| {
-                    if !ch.is_alphanumeric() && !allowed.contains(&ch) {
-                        illegal_chars.push(ch);
-                    }
-                });
+            match &val.lit {
+                Lit::Str(lit) => {
+                    let route: RouteValue = lit.parse()?;
+                    Expr::Route(route)
+                }
+                _ => return Err(Error::new(Span::call_site(), "invalid route")),
             }
-
-            if !illegal_chars.is_empty() {
-                return Err(Error::new(
-                    Span::call_site(),
-                    format!("invalid characters in route: {:?}", illegal_chars),
-                ));
-            }
-
-            Expr::ExprLit(val)
         } else if member_ident == "address" {
             let val: ExprLit = parse_variant(input)?;
             Expr::ExprLit(val)
@@ -408,7 +510,7 @@ impl syn::parse::Parse for ExprArrayHandler {
 
 #[derive(Debug, Clone)]
 struct ExprHandler {
-    route: ExprLit,
+    route: RouteValue,
     method: ExprPath,
     handler: ExprPath,
 }
@@ -435,7 +537,7 @@ impl syn::parse::Parse for ExprHandler {
             .expect("could not get handler");
 
         let route = match &route.expr {
-            Expr::ExprLit(el) => el.clone(),
+            Expr::Route(route) => route.clone(),
             _ => {
                 return Err(Error::new(
                     Span::call_site(),
@@ -609,6 +711,8 @@ pub fn run(input: TokenStream) -> TokenStream {
                 #f_name::<#variant_value>();
             });
         }
+
+        //todo add new route logic here
 
         is.push(quote! {
             RoutePossibilities::#variant_name => {

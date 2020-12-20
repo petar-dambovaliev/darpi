@@ -69,8 +69,24 @@ async fn hello_world_json_body(
     body
 }
 
+fn d() {
+    let string = "/name/{name1}/id/{id-}";
+    let mut map = serde_json::Map::new();
+    let mut inside = false;
+    string.chars().into_iter().for_each(|ch| {
+        inside = ch == '{';
+
+        if inside {}
+    });
+}
+
+fn decode(string: &str, start: u32, end: u32) -> u32 {
+    0
+}
+
 #[tokio::test]
 async fn main() {
+    d();
     //todo create logging, middleware and web path
     // todo use FromRequest in handler to enable user defined types
     run!({
@@ -78,19 +94,9 @@ async fn main() {
         module: MyModule,
         bind: [
             {
-                route: "/hello_world",
+                route: "/hello_world/{name}",
                 method: Method::GET,
                 handler: hello_world
-            },
-            {
-                route: "/hello_world_optional",
-                method: Method::GET,
-                handler: hello_world_optional
-            },
-            {
-                route: "/hello_world_json_body",
-                method: Method::POST,
-                handler: hello_world_json_body
             },
         ],
     });
