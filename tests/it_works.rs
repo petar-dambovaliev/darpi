@@ -31,13 +31,11 @@ pub struct HelloWorldPath {
 }
 
 #[handler]
-async fn hello_world(p: Path<HelloWorldPath>) -> Json<HelloWorldPath> {
-    Json(p.0)
-}
+async fn hello_world() {}
 
 #[tokio::test]
 async fn main() {
-    //todo create logging, middleware and web path
+    //todo create logging, middleware
     // todo use FromRequest in handler to enable user defined types
     run!({
         address: "127.0.0.1:3000",

@@ -154,33 +154,33 @@ fn make_json_body(
     output
 }
 
-fn make_handler_args(
-    tp: &PatType,
-    i: u32,
-    module_ident: &Ident,
-) -> (Ident, proc_macro2::TokenStream, bool) {
+enum HandlerArgs {
+    Query(Ident, proc_macro2::TokenStream),
+    Json(Ident, proc_macro2::TokenStream),
+    Path(Ident, proc_macro2::TokenStream),
+    Option(Ident, proc_macro2::TokenStream),
+    Module(Ident, proc_macro2::TokenStream),
+}
+
+fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArgs {
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
-
-    let method_resolve = quote! {
-        let #arg_name: #ttype = #module_ident.resolve();
-    };
 
     if let Type::Path(tp) = *ttype.clone() {
         let last = tp.path.segments.last().unwrap();
         if last.ident == "Query" {
             let res = make_query(&arg_name, last);
-            return (arg_name, res, false);
+            return HandlerArgs::Query(arg_name, res);
         }
         if last.ident == "Json" {
             let res = make_json_body(&arg_name, &tp.path, &last.arguments);
-            return (arg_name, res, false);
+            return HandlerArgs::Json(arg_name, res);
         }
 
         if last.ident == "Path" {
             let res = make_path_args(&arg_name, &last);
-            return (arg_name, res, false);
+            return HandlerArgs::Path(arg_name, res);
         }
 
         if last.ident == "Option" {
@@ -190,7 +190,7 @@ fn make_handler_args(
                         let first = tp.path.segments.first().unwrap();
                         if first.ident == "Query" {
                             let res = make_optional_query(&arg_name, last);
-                            return (arg_name, res, false);
+                            return HandlerArgs::Option(arg_name, res);
                         }
                     }
                 }
@@ -198,7 +198,10 @@ fn make_handler_args(
         }
     }
 
-    (arg_name, method_resolve, true)
+    let method_resolve = quote! {
+        let #arg_name: #ttype = #module_ident.resolve();
+    };
+    HandlerArgs::Module(arg_name, method_resolve)
 }
 
 #[proc_macro_attribute]
@@ -236,23 +239,31 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
             let module_ident = format_ident!("module_{}", i);
-            let (arg_name, method_resolve, is_module) = make_handler_args(tp, i, &module_ident);
-
-            if is_module {
-                if let Type::Path(tp) = *tp.ty.clone() {
-                    let segment = tp.path.segments.first().unwrap();
-                    if let PathArguments::AngleBracketed(ab) = &segment.arguments {
-                        let user_type = &ab.args;
-                        module_full_req.push(quote! {
+            //todo change the return type to enum
+            //todo add nopath trait to check from handler if path arg is not used
+            let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
+                HandlerArgs::Query(i, ts) => (i, ts),
+                HandlerArgs::Json(i, ts) => (i, ts),
+                HandlerArgs::Path(i, ts) => (i, ts),
+                HandlerArgs::Option(i, ts) => (i, ts),
+                HandlerArgs::Module(i, ts) => {
+                    if let Type::Path(tp) = *tp.ty.clone() {
+                        let segment = tp.path.segments.first().unwrap();
+                        if let PathArguments::AngleBracketed(ab) = &segment.arguments {
+                            let user_type = &ab.args;
+                            module_full_req.push(quote! {
                             std::sync::Arc<impl shaku::HasComponent<#user_type + 'static>>
                         });
-                        module_full_req.push(quote! {+});
-                        module_args.push(quote! {
+                            module_full_req.push(quote! {+});
+                            module_args.push(quote! {
                             #module_ident: std::sync::Arc<impl shaku::HasComponent<#user_type + 'static>>
                         });
+                        }
                     }
-                }
-            }
+                    (i, ts)
+                },
+            };
+
             make_args.push(method_resolve);
             give_args.push(quote! {#arg_name});
             i += 1;
@@ -266,6 +277,17 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     }
 
     let func_name = func.sig.ident;
+
+    let has_path_args = format_ident!("HasPathArgs_{}", func_name);
+
+    let has_path_args_checker = if expects_body {
+        quote! {}
+    } else {
+        quote! {
+            impl #has_path_args for #func_name {}
+        }
+    };
+
     let no_body = format_ident!("NoBody_{}", func_name);
 
     let body_checker = if expects_body {
@@ -323,10 +345,13 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
+        trait #has_path_args {}
+        #[allow(non_camel_case_types, missing_docs)]
         trait #no_body {}
         #[allow(non_camel_case_types, missing_docs)]
         pub struct #func_name;
         #body_checker
+        #has_path_args_checker
         impl #func_name {
            #fn_call
            //user defined function
