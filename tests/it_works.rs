@@ -1,10 +1,9 @@
-use darpi_code_gen::{handler, run, QueryType};
-use darpi_web::json::Json;
-use darpi_web::request::{Path, Query, QueryPayloadError};
+use darpi_code_gen::{handler, run, PathType, QueryType};
+use darpi_web::request::{Path, QueryPayloadError};
+use darpi_web::Json;
 use http::Method;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
-use std::sync::Arc;
 
 trait Logger: Interface {
     fn log(&self, arg: &dyn std::fmt::Debug);
@@ -26,47 +25,14 @@ module! {
     }
 }
 
-#[derive(Deserialize, Serialize, QueryType)]
-pub struct HelloWorldParams {
-    hello: String,
+#[derive(Deserialize, Serialize, Debug, PathType)]
+pub struct HelloWorldPath {
+    name: usize,
 }
 
 #[handler]
-async fn hello_world(
-    q: Query<HelloWorldParams>,
-) -> Result<Json<HelloWorldParams>, QueryPayloadError> {
-    if q.hello == "john" {
-        return Err(QueryPayloadError::NotExist);
-    }
-    Ok(Json(q.into_inner()))
-}
-
-#[handler]
-async fn hello_world_optional(q: Option<Query<HelloWorldParams>>) -> String {
-    let name = match &q {
-        Some(hw) => &hw.hello,
-        None => "nobody",
-    };
-    format!("hello_world {}", name)
-}
-
-// #[handler]
-// async fn hello_world_path(Path((id, name)): Path<(String, u32)>) -> String {
-//     format!("hello_world id: {} name: {}", id, name)
-// }
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct HelloWorldBody {
-    hello: String,
-}
-
-#[handler]
-async fn hello_world_json_body(
-    body: Json<HelloWorldBody>,
-    logger: Arc<dyn Logger>,
-) -> Json<HelloWorldBody> {
-    logger.log(&body);
-    body
+async fn hello_world(p: Path<HelloWorldPath>) -> Json<HelloWorldPath> {
+    Json(p.0)
 }
 
 #[tokio::test]

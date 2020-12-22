@@ -23,21 +23,11 @@ pub fn path(input: TokenStream) -> TokenStream {
     let name = &struct_arg.ident;
 
     if let Fields::Named(named) = struct_arg.fields {
-        let mut deser_funcs = vec![];
-        named.named.iter().for_each(|f| {
-            let f_name = format_ident!("de_{}", f.ident.as_ref().unwrap());
-            let rtype = &f.ty;
-            deser_funcs.push(quote! {
-                fn #f_name(string: &str, start: u32, end: u32) -> #rtype {
-
-                }
-            });
-        });
         let tokens = quote! {
             impl darpi_web::response::ErrResponder<darpi_web::request::PathError, darpi_web::Body> for #name {
                 fn respond_err(e: darpi_web::request::PathError) -> darpi_web::Response<darpi_web::Body> {
                     let msg = match e {
-                        darpi_web::request::QueryPayloadError::Deserialize(msg) => msg,
+                        darpi_web::request::PathError::Deserialize(msg) => msg,
                     };
 
                     darpi_web::Response::builder()
@@ -113,6 +103,35 @@ fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream 
     }
 }
 
+fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
+    let inner = &last.arguments;
+    quote! {
+        fn respond_to_path_err<T>(e: darpi_web::request::PathError) -> darpi_web::Response<darpi_web::Body>
+        where
+            T: darpi_web::response::ErrResponder<darpi_web::request::PathError, darpi_web::Body>,
+        {
+            T::respond_err(e)
+        }
+
+        let json_args = match serde_json::to_string(&req_args) {
+            Ok(k) => k,
+            Err(e) => {
+                return Ok(respond_to_path_err::#inner(
+                    darpi_web::request::PathError::Deserialize(e.to_string()),
+                ))
+            }
+        };
+        let #arg_name: #last = match serde_json::from_str(&json_args) {
+            Ok(k) => k,
+            Err(e) => {
+                return Ok(respond_to_path_err::#inner(
+                    darpi_web::request::PathError::Deserialize(e.to_string()),
+                ))
+            }
+        };
+    }
+}
+
 fn make_json_body(
     arg_name: &Ident,
     path: &Path,
@@ -156,6 +175,11 @@ fn make_handler_args(
         }
         if last.ident == "Json" {
             let res = make_json_body(&arg_name, &tp.path, &last.arguments);
+            return (arg_name, res, false);
+        }
+
+        if last.ident == "Path" {
+            let res = make_path_args(&arg_name, &last);
             return (arg_name, res, false);
         }
 

@@ -3,9 +3,8 @@ use hyper::{body::HttpBody, Body};
 use crate::response::ResponderError;
 use derive_more::{Display, From};
 use futures::Future;
-use http::Request;
-use serde::de;
 use serde::de::DeserializeOwned;
+use serde::{de, Deserialize, Deserializer};
 use serde_urlencoded;
 use std::{fmt, ops};
 
@@ -118,6 +117,19 @@ impl<T> Path<T> {
     }
 }
 
+impl<'de, T> Deserialize<'de> for Path<T>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let t = T::deserialize(deserializer)?;
+        Ok(Path(t))
+    }
+}
+
 impl<T> AsRef<T> for Path<T> {
     fn as_ref(&self) -> &T {
         &self.0
@@ -163,3 +175,5 @@ pub enum PathError {
 }
 
 impl ResponderError for PathError {}
+
+impl std::error::Error for PathError {}
