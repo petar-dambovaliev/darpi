@@ -1,15 +1,18 @@
 #![forbid(unsafe_code)]
 extern crate proc_macro;
 
+use darpi_web::{ReqRoute, Route as DefRoute};
 use md5;
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span, TokenTree};
+use proc_macro2::{Ident, Span};
 use quote::{format_ident, quote};
+use std::cmp::Ordering;
+use std::convert::TryFrom;
 use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
-    punctuated::Punctuated, token, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
+    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
     ExprLit, ExprPath, Fields, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member,
     PatType, Path, PathArguments, PathSegment, Type,
 };
@@ -251,7 +254,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let fn_call = if !module_args.is_empty() {
         quote! {
-            async fn call(r: darpi_web::Request<darpi_web::Body>, #(#module_args )*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+            async fn call<'a>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #(#module_args )*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
                use darpi_web::response::Responder;
 
                #(#make_args )*
@@ -262,7 +265,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     } else {
         quote! {
-            async fn call<T>(r: darpi_web::Request<darpi_web::Body>, m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+            async fn call<'a, T>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
                use darpi_web::response::Responder;
 
                #(#make_args )*
@@ -281,15 +284,15 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let fn_expand_call = if !module_full_req.is_empty() {
         quote! {
             #[inline]
-            async fn expand_call(r: darpi_web::Request<darpi_web::Body>, m: #(#module_full_req)*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
-                Self::call(r, #(#inject_args),*).await
+            async fn expand_call<'a>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: #(#module_full_req)*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                Self::call(r, (req_route, req_args), #(#inject_args),*).await
             }
         }
     } else {
         quote! {
             #[inline]
-            async fn expand_call<T>(r: darpi_web::Request<darpi_web::Body>, m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
-                Self::call(r, m).await
+            async fn expand_call<'a, T>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+                Self::call(r, (req_route, req_args), m).await
             }
         }
     };
@@ -317,83 +320,7 @@ enum Expr {
     Module(ExprPath),
     ExprLit(ExprLit),
     ExprPath(ExprPath),
-    Route(RouteValue),
 }
-
-#[derive(Debug, Clone)]
-struct RouteValue {
-    values: Vec<proc_macro2::TokenTree>,
-}
-
-impl syn::parse::Parse for RouteValue {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let mut values = vec![];
-        if !input.peek(token::Div) {
-            return Err(Error::new(
-                Span::call_site(),
-                "routes must start with slash: `/`",
-            ));
-        }
-
-        let _: token::Div = input.parse()?;
-
-        while !input.is_empty() {
-            if input.peek(token::Brace) {
-                let g: proc_macro2::Group = input.parse()?;
-                values.push(TokenTree::Group(g));
-                continue;
-            }
-
-            let i: Ident = input.parse()?;
-            values.push(TokenTree::Ident(i));
-            if input.peek(token::Div) {
-                let _: token::Div = input.parse()?;
-            }
-        }
-        Ok(Self { values })
-    }
-}
-
-// impl From<ExprLit> for RouteValue {
-//     fn from(expr: ExprLit) -> Self {
-//         let input = expr.to_token_stream().to_string();
-//
-//         let mut path = vec![];
-//         let mut args = vec![];
-//         let mut cur_path = String::new();
-//         let mut cur_arg = String::new();
-//         let mut inside: bool;
-//         let (mut saw_inner, mut saw_outer) = (false, false);
-//
-//         for ch in input.chars() {
-//             if ch == '{' {
-//                 saw_inner = true;
-//                 if !cur_path.is_empty() {
-//                     path.push(cur_path);
-//                     cur_path = String::new();
-//                 }
-//             } else if ch == '}' {
-//                 saw_outer = true;
-//                 saw_inner = false;
-//
-//                 if !cur_arg.is_empty() {
-//                     args.push(cur_arg);
-//                     cur_arg = String::new();
-//                 }
-//             }
-//
-//             inside = saw_inner && !saw_outer;
-//
-//             if inside {
-//                 cur_arg.push(ch);
-//                 continue;
-//             }
-//             cur_path.push(ch);
-//         }
-//
-//         Self { path, args }
-//     }
-// }
 
 #[derive(Debug)]
 struct FieldValue {
@@ -445,8 +372,11 @@ impl syn::parse::Parse for FieldValue {
 
             match &val.lit {
                 Lit::Str(lit) => {
-                    let route: RouteValue = lit.parse()?;
-                    Expr::Route(route)
+                    match DefRoute::try_from(lit.value().as_str()) {
+                        Ok(_) => {}
+                        Err(e) => return Err(Error::new(Span::call_site(), e)),
+                    };
+                    Expr::ExprLit(val)
                 }
                 _ => return Err(Error::new(Span::call_site(), "invalid route")),
             }
@@ -510,7 +440,7 @@ impl syn::parse::Parse for ExprArrayHandler {
 
 #[derive(Debug, Clone)]
 struct ExprHandler {
-    route: RouteValue,
+    route: ExprLit,
     method: ExprPath,
     handler: ExprPath,
 }
@@ -537,7 +467,7 @@ impl syn::parse::Parse for ExprHandler {
             .expect("could not get handler");
 
         let route = match &route.expr {
-            Expr::Route(route) => route.clone(),
+            Expr::ExprLit(el) => el.clone(),
             _ => {
                 return Err(Error::new(
                     Span::call_site(),
@@ -712,33 +642,68 @@ pub fn run(input: TokenStream) -> TokenStream {
             });
         }
 
-        //todo add new route logic here
-
         is.push(quote! {
             RoutePossibilities::#variant_name => {
-                route == #route && method == #method.as_str()
+                let req_route = darpi_web::ReqRoute::try_from(route).unwrap();
+                let def_route = darpi_web::Route::try_from(#route).unwrap();
+                if def_route == req_route && method == #method.as_str() {
+                    let args = req_route.extract_args(&def_route).unwrap();
+                    return Some((req_route, args));
+                }
+                None
             }
         });
 
-        routes.push(quote! {
-            #variant_name
-        });
+        let route_str = route.to_token_stream().to_string();
+        routes.push((
+            quote! {
+                #variant_name
+            },
+            route_str,
+        ));
 
         routes_match.push(quote! {
             RoutePossibilities::#variant_name => {
-                #variant_value::expand_call(r, inner_module).await
+                #variant_value::expand_call(r, handler.1, inner_module).await
             }
         });
     });
 
+    routes.sort_by(|left, right| {
+        let left_matches: Vec<usize> = left.1.match_indices('{').map(|t| t.0).collect();
+
+        if left_matches.len() == 0 {
+            return Ordering::Less;
+        }
+
+        let left_count = left_matches.iter().fold(0, |acc, a| acc + a);
+
+        let right_matches: Vec<usize> = right.1.match_indices('{').map(|t| t.0).collect();
+
+        if right_matches.len() == 0 {
+            return Ordering::Greater;
+        }
+
+        let right_count = right_matches.iter().fold(0, |acc, a| acc + a);
+
+        if left_matches.len() + left_count > right_matches.len() + right_count {
+            return Ordering::Less;
+        }
+
+        Ordering::Greater
+    });
+
+    let sorted_routes: Vec<&proc_macro2::TokenStream> = routes.iter().map(|(ts, _)| ts).collect();
+
     let route_possibilities = quote! {
+        use std::convert::TryFrom;
         #[allow(non_camel_case_types, missing_docs)]
         pub enum RoutePossibilities {
-            #(#routes ,)*
+            #(#sorted_routes ,)*
         }
 
         impl RoutePossibilities {
-            pub fn is(&self, route: &str, method: &http::Method) -> bool {
+            pub fn get_route<'a>(&self, route: &'a str, method: &http::Method) -> Option<(darpi_web::route::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>)> {
                 return match self {
                     #(#is ,)*
                 };
@@ -784,7 +749,7 @@ pub fn run(input: TokenStream) -> TokenStream {
                 #module_let
                 Self {
                     #module_self
-                    handlers: std::sync::Arc::new([#(RoutePossibilities::#routes ,)*]),
+                    handlers: std::sync::Arc::new([#(RoutePossibilities::#sorted_routes ,)*]),
                     address: address,
                 }
             }
@@ -803,12 +768,17 @@ pub fn run(input: TokenStream) -> TokenStream {
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
-                                let route = r.uri().path();
-                                let method = r.method();
+                                //todo fix this allocation
+                                let route = r.uri().path().to_string();
+                                let method = r.method().clone();
 
-                                let handler = inner_handlers
-                                    .iter()
-                                    .find(|h| h.is(route, method));
+                                 let mut handler = None;
+                                for rp in inner_handlers.iter() {
+                                    if let Some(rr) = rp.get_route(&route, &method) {
+                                        handler = Some((rp, rr));
+                                        break;
+                                    }
+                                }
 
                                 let handler = match handler {
                                     Some(s) => s,
@@ -819,7 +789,7 @@ pub fn run(input: TokenStream) -> TokenStream {
                                                 .unwrap())
                                     }.await,
                                 };
-                                match handler {
+                                match handler.0 {
                                     #(#routes_match ,)*
                                 }
                             }
