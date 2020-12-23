@@ -3,6 +3,7 @@ use darpi_web::request::Path;
 use http::Method;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
+use std::sync::Arc;
 
 trait Logger: Interface {
     fn log(&self, arg: &dyn std::fmt::Debug);
@@ -31,7 +32,11 @@ pub struct HelloWorldPath {
 }
 
 #[handler]
-async fn hello_world(p: Path<HelloWorldPath>) {}
+async fn hello_world(p: Path<HelloWorldPath>, logger: Arc<dyn Logger>) -> String {
+    let response = format!("hello_world: user {}", p.name);
+    logger.log(&response);
+    response
+}
 
 #[tokio::test]
 async fn main() {

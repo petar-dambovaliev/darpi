@@ -95,9 +95,11 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
     quote! {
         let #arg_name: #last = match r.uri().query() {
             Some(q) => {
-                let q: Result<Query<HelloWorldParams>, darpi::request::QueryPayloadError> =
-                    Query::from_query(q);
-                Some(q.unwrap())
+                let #arg_name: #last = match Query::from_query(q) {
+                    Ok(w) => Some(w),
+                    Err(w) => None
+                };
+                #arg_name
             }
             None => None,
         };
