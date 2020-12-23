@@ -23,6 +23,12 @@ pub fn path(input: TokenStream) -> TokenStream {
     let name = &struct_arg.ident;
 
     if let Fields::Named(named) = struct_arg.fields {
+        if named.named.is_empty() {
+            return Error::new_spanned(named, "Empty path makes no sense")
+                .to_compile_error()
+                .into();
+        }
+
         let tokens = quote! {
             impl darpi_web::response::ErrResponder<darpi_web::request::PathError, darpi_web::Body> for #name {
                 fn respond_err(e: darpi_web::request::PathError) -> darpi_web::Response<darpi_web::Body> {
@@ -235,6 +241,8 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut module_args = vec![];
     let mut module_full_req = vec![];
     let mut i = 0_u32;
+    let mut has_args = false;
+    let mut n_args = 0u8;
 
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
@@ -244,7 +252,11 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
             let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
                 HandlerArgs::Query(i, ts) => (i, ts),
                 HandlerArgs::Json(i, ts) => (i, ts),
-                HandlerArgs::Path(i, ts) => (i, ts),
+                HandlerArgs::Path(i, ts) => {
+                    n_args += 1;
+                    has_args = true;
+                    (i, ts)
+                },
                 HandlerArgs::Option(i, ts) => (i, ts),
                 HandlerArgs::Module(i, ts) => {
                     if let Type::Path(tp) = *tp.ty.clone() {
@@ -270,6 +282,12 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     });
 
+    if n_args > 1 {
+        return Error::new_spanned(func, "One 1 path type is allowed")
+            .to_compile_error()
+            .into();
+    }
+
     if let Some(last) = module_full_req.last() {
         if last.to_string() == quote! {+}.to_string() {
             module_full_req.pop();
@@ -280,12 +298,12 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let has_path_args = format_ident!("HasPathArgs_{}", func_name);
 
-    let has_path_args_checker = if expects_body {
-        quote! {}
-    } else {
+    let has_path_args_checker = if has_args {
         quote! {
             impl #has_path_args for #func_name {}
         }
+    } else {
+        quote! {}
     };
 
     let no_body = format_ident!("NoBody_{}", func_name);
@@ -658,6 +676,8 @@ pub fn run(input: TokenStream) -> TokenStream {
     let mut routes_match = vec![];
     let mut body_assertions = vec![];
     let mut body_assertions_def = vec![];
+    let mut route_args_assertions = vec![];
+    let mut route_args_assertions_def = vec![];
 
     elements.iter().for_each(|el| {
         let handler = el
@@ -681,6 +701,16 @@ pub fn run(input: TokenStream) -> TokenStream {
             .expect("cannot get handler path ident");
 
         let method_name = el.method.path.segments.last().unwrap();
+
+        if route.clone().to_token_stream().to_string().contains('{') {
+            let f_name = format_ident!("assert_has_path_args_{}", variant_value);
+            let t_name = format_ident!("HasPathArgs_{}", variant_value);
+
+            route_args_assertions_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
+            route_args_assertions.push(quote! {
+                #f_name::<#variant_value>();
+            });
+        }
 
         if method_name.ident == "GET" {
             let f_name = format_ident!("assert_no_body_{}", variant_value);
@@ -781,6 +811,7 @@ pub fn run(input: TokenStream) -> TokenStream {
 
     let app = quote! {
         #(#body_assertions_def )*
+        #(#route_args_assertions_def )*
 
          pub struct App {
             #module_def
@@ -791,6 +822,7 @@ pub fn run(input: TokenStream) -> TokenStream {
         impl App {
             pub fn new() -> Self {
                 #(#body_assertions;)*
+                #(#route_args_assertions;)*
                 let address: std::net::SocketAddr = #address_value
                     .parse()
                     .expect(&format!("invalid server address: `{}`", #address_value));

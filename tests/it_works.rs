@@ -31,7 +31,7 @@ pub struct HelloWorldPath {
 }
 
 #[handler]
-async fn hello_world() {}
+async fn hello_world(p: Path<HelloWorldPath>) {}
 
 #[tokio::test]
 async fn main() {
