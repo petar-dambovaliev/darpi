@@ -297,13 +297,16 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let func_name = func.sig.ident;
 
     let has_path_args = format_ident!("HasPathArgs_{}", func_name);
+    let has_no_path_args = format_ident!("HasNoPathArgs_{}", func_name);
 
     let has_path_args_checker = if has_args {
         quote! {
             impl #has_path_args for #func_name {}
         }
     } else {
-        quote! {}
+        quote! {
+            impl #has_no_path_args for #func_name {}
+        }
     };
 
     let no_body = format_ident!("NoBody_{}", func_name);
@@ -364,6 +367,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
         trait #has_path_args {}
+        trait #has_no_path_args {}
         #[allow(non_camel_case_types, missing_docs)]
         trait #no_body {}
         #[allow(non_camel_case_types, missing_docs)]
@@ -705,6 +709,14 @@ pub fn run(input: TokenStream) -> TokenStream {
         if route.clone().to_token_stream().to_string().contains('{') {
             let f_name = format_ident!("assert_has_path_args_{}", variant_value);
             let t_name = format_ident!("HasPathArgs_{}", variant_value);
+
+            route_args_assertions_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
+            route_args_assertions.push(quote! {
+                #f_name::<#variant_value>();
+            });
+        } else {
+            let f_name = format_ident!("assert_has_no_path_args_{}", variant_value);
+            let t_name = format_ident!("HasNoPathArgs_{}", variant_value);
 
             route_args_assertions_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
             route_args_assertions.push(quote! {

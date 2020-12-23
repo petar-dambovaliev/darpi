@@ -37,6 +37,7 @@ async fn hello_world(p: Path<HelloWorldPath>) {}
 async fn main() {
     //todo create logging, middleware
     // todo use FromRequest in handler to enable user defined types
+    //todo clean up code generation
     run!({
         address: "127.0.0.1:3000",
         module: MyModule,
