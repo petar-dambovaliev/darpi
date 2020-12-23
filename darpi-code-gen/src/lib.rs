@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 extern crate proc_macro;
 
-use darpi_web::{ReqRoute, Route as DefRoute};
+use darpi_web::Route as DefRoute;
 use md5;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
@@ -12,33 +12,49 @@ use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
-    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, AttributeArgs, Error,
-    ExprLit, ExprPath, Fields, FnArg, GenericArgument, ItemFn, ItemStruct, Lit, LitStr, Member,
-    PatType, Path, PathArguments, PathSegment, Type,
+    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, token::Pound, AttrStyle,
+    Attribute, AttributeArgs, Error, ExprLit, ExprPath, Fields, FnArg, GenericArgument, ItemFn,
+    ItemStruct, Lit, LitStr, Member, PatType, Path, PathArguments, PathSegment, Type,
 };
 
-#[proc_macro_derive(PathType)]
-pub fn path(input: TokenStream) -> TokenStream {
-    let struct_arg = parse_macro_input!(input as ItemStruct);
-    let name = &struct_arg.ident;
+#[proc_macro_attribute]
+pub fn path_type(_: TokenStream, input: TokenStream) -> TokenStream {
+    let mut struct_arg = parse_macro_input!(input as ItemStruct);
+    let name = struct_arg.ident.clone();
 
-    if let Fields::Named(named) = struct_arg.fields {
+    if let Fields::Named(ref mut named) = &mut struct_arg.fields {
         if named.named.is_empty() {
             return Error::new_spanned(named, "Empty path makes no sense")
                 .to_compile_error()
                 .into();
         }
 
+        named.named.iter_mut().for_each(|f| {
+            f.attrs.push(Attribute {
+                pound_token: Pound::default(),
+                style: AttrStyle::Outer,
+                bracket_token: Default::default(),
+                path: Path {
+                    leading_colon: None,
+                    segments: Default::default(),
+                },
+                tokens: quote! {
+                    serde(deserialize_with = "darpi::from_str")
+                },
+            })
+        });
+
         let tokens = quote! {
-            impl darpi_web::response::ErrResponder<darpi_web::request::PathError, darpi_web::Body> for #name {
-                fn respond_err(e: darpi_web::request::PathError) -> darpi_web::Response<darpi_web::Body> {
+            #struct_arg
+            impl darpi::response::ErrResponder<darpi::request::PathError, darpi::Body> for #name {
+                fn respond_err(e: darpi::request::PathError) -> darpi::Response<darpi::Body> {
                     let msg = match e {
-                        darpi_web::request::PathError::Deserialize(msg) => msg,
+                        darpi::request::PathError::Deserialize(msg) => msg,
                     };
 
-                    darpi_web::Response::builder()
-                        .status(http::StatusCode::BAD_REQUEST)
-                        .body(darpi_web::Body::from(msg))
+                    darpi::Response::builder()
+                        .status(darpi::StatusCode::BAD_REQUEST)
+                        .body(darpi::Body::from(msg))
                         .expect("this not to happen!")
                 }
             }
@@ -57,16 +73,16 @@ pub fn query(input: TokenStream) -> TokenStream {
     let name = &struct_arg.ident;
 
     let tokens = quote! {
-        impl darpi_web::response::ErrResponder<darpi_web::request::QueryPayloadError, darpi_web::Body> for #name {
-            fn respond_err(e: darpi_web::request::QueryPayloadError) -> darpi_web::Response<darpi_web::Body> {
+        impl darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body> for #name {
+            fn respond_err(e: darpi::request::QueryPayloadError) -> darpi::Response<darpi::Body> {
                 let msg = match e {
-                    darpi_web::request::QueryPayloadError::Deserialize(de) => de.to_string(),
-                    darpi_web::request::QueryPayloadError::NotExist => "missing query params".to_string(),
+                    darpi::request::QueryPayloadError::Deserialize(de) => de.to_string(),
+                    darpi::request::QueryPayloadError::NotExist => "missing query params".to_string(),
                 };
 
-                darpi_web::Response::builder()
-                    .status(http::StatusCode::BAD_REQUEST)
-                    .body(darpi_web::Body::from(msg))
+                darpi::Response::builder()
+                    .status(darpi::StatusCode::BAD_REQUEST)
+                    .body(darpi::Body::from(msg))
                     .expect("this not to happen!")
             }
         }
@@ -79,7 +95,7 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
     quote! {
         let #arg_name: #last = match r.uri().query() {
             Some(q) => {
-                let q: Result<Query<HelloWorldParams>, darpi_web::request::QueryPayloadError> =
+                let q: Result<Query<HelloWorldParams>, darpi::request::QueryPayloadError> =
                     Query::from_query(q);
                 Some(q.unwrap())
             }
@@ -91,15 +107,15 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
 fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     let inner = &last.arguments;
     quote! {
-        fn respond_to_err<T>(e: darpi_web::request::QueryPayloadError) -> darpi_web::Response<darpi_web::Body>
+        fn respond_to_err<T>(e: darpi::request::QueryPayloadError) -> darpi::Response<darpi::Body>
         where
-            T: darpi_web::response::ErrResponder<darpi_web::request::QueryPayloadError, darpi_web::Body>,
+            T: darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>,
         {
             T::respond_err(e)
         }
         let #arg_name = match r.uri().query() {
             Some(q) => q,
-            None => return Ok(respond_to_err::#inner(darpi_web::request::QueryPayloadError::NotExist))
+            None => return Ok(respond_to_err::#inner(darpi::request::QueryPayloadError::NotExist))
         };
 
         let #arg_name: #last = match Query::from_query(#arg_name) {
@@ -112,26 +128,26 @@ fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream 
 fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     let inner = &last.arguments;
     quote! {
-        fn respond_to_path_err<T>(e: darpi_web::request::PathError) -> darpi_web::Response<darpi_web::Body>
+        fn respond_to_path_err<T>(e: darpi::request::PathError) -> darpi::Response<darpi::Body>
         where
-            T: darpi_web::response::ErrResponder<darpi_web::request::PathError, darpi_web::Body>,
+            T: darpi::response::ErrResponder<darpi::request::PathError, darpi::Body>,
         {
             T::respond_err(e)
         }
 
-        let json_args = match serde_json::to_string(&req_args) {
+        let json_args = match darpi::serde_json::to_string(&req_args) {
             Ok(k) => k,
             Err(e) => {
                 return Ok(respond_to_path_err::#inner(
-                    darpi_web::request::PathError::Deserialize(e.to_string()),
+                    darpi::request::PathError::Deserialize(e.to_string()),
                 ))
             }
         };
-        let #arg_name: #last = match serde_json::from_str(&json_args) {
+        let #arg_name: #last = match darpi::serde_json::from_str(&json_args) {
             Ok(k) => k,
             Err(e) => {
                 return Ok(respond_to_path_err::#inner(
-                    darpi_web::request::PathError::Deserialize(e.to_string()),
+                    darpi::request::PathError::Deserialize(e.to_string()),
                 ))
             }
         };
@@ -144,8 +160,8 @@ fn make_json_body(
     inner: &PathArguments,
 ) -> proc_macro2::TokenStream {
     let output = quote! {
-        use darpi_web::request::FromRequestBody;
-        use darpi_web::response::ResponderError;
+        use darpi::request::FromRequestBody;
+        use darpi::response::ResponderError;
         let (_, body) = r.into_parts();
 
         if let Err(e) = Json::#inner::assert_content_size(&body) {
@@ -321,8 +337,8 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let fn_call = if !module_args.is_empty() {
         quote! {
-            async fn call<'a>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #(#module_args )*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
-               use darpi_web::response::Responder;
+            async fn call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #(#module_args )*) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+               use darpi::response::Responder;
 
                #(#make_args )*
                Ok(async {
@@ -332,8 +348,8 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
         }
     } else {
         quote! {
-            async fn call<'a, T>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
-               use darpi_web::response::Responder;
+            async fn call<'a, T>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+               use darpi::response::Responder;
 
                #(#make_args )*
                Ok(async {
@@ -351,14 +367,14 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let fn_expand_call = if !module_full_req.is_empty() {
         quote! {
             #[inline]
-            async fn expand_call<'a>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: #(#module_full_req)*) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+            async fn expand_call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: #(#module_full_req)*) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                 Self::call(r, (req_route, req_args), #(#inject_args),*).await
             }
         }
     } else {
         quote! {
             #[inline]
-            async fn expand_call<'a, T>(r: darpi_web::Request<darpi_web::Body>, (req_route, req_args): (darpi_web::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi_web::Response<darpi_web::Body>, std::convert::Infallible> {
+            async fn expand_call<'a, T>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                 Self::call(r, (req_route, req_args), m).await
             }
         }
@@ -367,6 +383,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
         trait #has_path_args {}
+        #[allow(non_camel_case_types, missing_docs)]
         trait #has_no_path_args {}
         #[allow(non_camel_case_types, missing_docs)]
         trait #no_body {}
@@ -735,8 +752,8 @@ pub fn run(input: TokenStream) -> TokenStream {
 
         is.push(quote! {
             RoutePossibilities::#variant_name => {
-                let req_route = darpi_web::ReqRoute::try_from(route).unwrap();
-                let def_route = darpi_web::Route::try_from(#route).unwrap();
+                let req_route = darpi::ReqRoute::try_from(route).unwrap();
+                let def_route = darpi::Route::try_from(#route).unwrap();
                 if def_route == req_route && method == #method.as_str() {
                     let args = req_route.extract_args(&def_route).unwrap();
                     return Some((req_route, args));
@@ -794,7 +811,7 @@ pub fn run(input: TokenStream) -> TokenStream {
         }
 
         impl RoutePossibilities {
-            pub fn get_route<'a>(&self, route: &'a str, method: &http::Method) -> Option<(darpi_web::route::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>)> {
+            pub fn get_route<'a>(&self, route: &'a str, method: &darpi::Method) -> Option<(darpi::route::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>)> {
                 return match self {
                     #(#is ,)*
                 };
@@ -852,12 +869,12 @@ pub fn run(input: TokenStream) -> TokenStream {
                 let module = self.module.clone();
                 let handlers = self.handlers.clone();
 
-                let make_svc = hyper::service::make_service_fn(move |_conn| {
+                let make_svc = darpi::service::make_service_fn(move |_conn| {
                     let inner_module = std::sync::Arc::clone(&module);
                     let inner_handlers = std::sync::Arc::clone(&handlers);
                     async move {
-                        Ok::<_, std::convert::Infallible>(hyper::service::service_fn(move |r: hyper::Request<hyper::Body>| {
-                            use futures::FutureExt;
+                        Ok::<_, std::convert::Infallible>(darpi::service::service_fn(move |r: darpi::Request<darpi::Body>| {
+                            use darpi::futures::FutureExt;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
@@ -876,9 +893,9 @@ pub fn run(input: TokenStream) -> TokenStream {
                                 let handler = match handler {
                                     Some(s) => s,
                                     None => return  async {
-                                         Ok::<_, std::convert::Infallible>(hyper::Response::builder()
-                                                .status(hyper::StatusCode::NOT_FOUND)
-                                                .body(hyper::body::Body::empty())
+                                         Ok::<_, std::convert::Infallible>(darpi::Response::builder()
+                                                .status(darpi::StatusCode::NOT_FOUND)
+                                                .body(darpi::Body::empty())
                                                 .unwrap())
                                     }.await,
                                 };
@@ -890,7 +907,7 @@ pub fn run(input: TokenStream) -> TokenStream {
                     }
                 });
 
-                let server = hyper::Server::bind(&address).serve(make_svc);
+                let server = darpi::Server::bind(&address).serve(make_svc);
                 if let Err(e) = server.await {
                     eprintln!("server error: {}", e);
                 }
