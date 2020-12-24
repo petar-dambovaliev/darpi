@@ -67,12 +67,13 @@ pub fn path_type(_: TokenStream, input: TokenStream) -> TokenStream {
         .into()
 }
 
-#[proc_macro_derive(QueryType)]
-pub fn query(input: TokenStream) -> TokenStream {
+#[proc_macro_attribute]
+pub fn query_type(_: TokenStream, input: TokenStream) -> TokenStream {
     let struct_arg = parse_macro_input!(input as ItemStruct);
     let name = &struct_arg.ident;
 
     let tokens = quote! {
+        #struct_arg
         impl darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body> for #name {
             fn respond_err(e: darpi::request::QueryPayloadError) -> darpi::Response<darpi::Body> {
                 let msg = match e {
@@ -87,7 +88,6 @@ pub fn query(input: TokenStream) -> TokenStream {
             }
         }
     };
-
     tokens.into()
 }
 
