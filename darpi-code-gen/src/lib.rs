@@ -282,7 +282,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
                         if let PathArguments::AngleBracketed(ab) = &segment.arguments {
                             let user_type = &ab.args;
                             module_full_req.push(quote! {
-                            std::sync::Arc<impl shaku::HasComponent<#user_type + 'static>>
+                            shaku::HasComponent<#user_type + 'static>
                         });
                             module_full_req.push(quote! {+});
                             module_args.push(quote! {
@@ -339,7 +339,7 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let fn_call = if !module_args.is_empty() {
         quote! {
-            async fn call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #(#module_args )*) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            async fn call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #(#module_args ,)*) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
 
                #(#make_args )*
@@ -362,14 +362,17 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
     };
 
     let mut inject_args = vec![];
-    module_full_req
-        .iter()
-        .for_each(|_| inject_args.push(quote! {m.clone()}));
+    module_full_req.iter().for_each(|mr| {
+        if mr.to_string() != quote! {+}.to_string() {
+            inject_args.push(quote! {m.clone()})
+        }
+    });
 
     let fn_expand_call = if !module_full_req.is_empty() {
         quote! {
             #[inline]
-            async fn expand_call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: #(#module_full_req)*) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            async fn expand_call<'a, T>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible>
+            where T: #(#module_full_req)* {
                 Self::call(r, (req_route, req_args), #(#inject_args),*).await
             }
         }

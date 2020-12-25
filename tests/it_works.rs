@@ -9,6 +9,10 @@ trait Logger: Interface {
     fn log(&self, arg: &dyn std::fmt::Debug);
 }
 
+trait UserService: Interface {
+    fn log(&self, arg: &dyn std::fmt::Debug);
+}
+
 #[derive(Component)]
 #[shaku(interface = Logger)]
 struct MyLogger;
@@ -18,9 +22,18 @@ impl Logger for MyLogger {
     }
 }
 
+#[derive(Component)]
+#[shaku(interface = UserService)]
+struct UserImpl;
+impl UserService for UserImpl {
+    fn log(&self, arg: &dyn std::fmt::Debug) {
+        println!("{:#?}", arg)
+    }
+}
+
 module! {
     MyModule {
-        components = [MyLogger],
+        components = [MyLogger, UserImpl],
         providers = [],
     }
 }
@@ -32,7 +45,11 @@ pub struct HelloWorldPath {
 }
 
 #[handler]
-async fn hello_world(p: Path<HelloWorldPath>, logger: Arc<dyn Logger>) -> String {
+async fn hello_world(
+    p: Path<HelloWorldPath>,
+    logger: Arc<dyn Logger>,
+    user_service: Arc<dyn UserService>,
+) -> String {
     let response = format!("hello_world: user {}", p.name);
     logger.log(&response);
     response
