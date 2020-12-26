@@ -32,14 +32,19 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let func_name = &func.sig.ident;
     let no_body = format_ident!("{}_{}", NO_BODY_PREFIX, func_name);
     let mut body_checker = proc_macro2::TokenStream::new();
+    let mut wants_body = false;
 
     func.sig.inputs.iter().for_each(|arg| {
-        if body_checker.is_empty() && arg.to_token_stream().to_string().contains("Json") {
-            body_checker = quote! {
-                impl #no_body for #func_name {}
-            };
+        if arg.to_token_stream().to_string().contains("Json") {
+            wants_body = true;
         }
     });
+
+    if !wants_body {
+        body_checker = quote! {
+            impl #no_body for #func_name {}
+        };
+    }
 
     let func_copy = func.clone();
     let mut make_args = vec![];
@@ -114,7 +119,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut inject_args = vec![];
     module_full_req
         .iter()
-        .for_each(|mr| inject_args.push(quote! {m.clone()}));
+        .for_each(|_| inject_args.push(quote! {m.clone()}));
 
     let mut fn_expand_where = proc_macro2::TokenStream::new();
     let mut fn_expand_self_call = quote! {Self::call(r, (req_route, req_args), m).await};
