@@ -4,23 +4,7 @@ mod app;
 mod handler;
 mod request;
 
-extern crate proc_macro;
-
-use darpi_web::Route as DefRoute;
-use md5;
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span};
-use quote::{format_ident, quote};
-use std::cmp::Ordering;
-use std::convert::TryFrom;
-use syn::export::ToTokens;
-use syn::parse::Parse;
-use syn::{
-    braced, bracketed, parse::ParseStream, parse_macro_input, parse_quote::ParseQuote,
-    punctuated::Punctuated, token::Brace, token::Colon, token::Comma, token::Pound, AttrStyle,
-    Attribute, AttributeArgs, Error, ExprLit, ExprPath, Fields, FnArg, GenericArgument, ItemFn,
-    ItemStruct, Lit, LitStr, Member, PatType, Path, PathArguments, PathSegment, Type,
-};
 
 #[proc_macro_attribute]
 pub fn path_type(attr: TokenStream, input: TokenStream) -> TokenStream {
