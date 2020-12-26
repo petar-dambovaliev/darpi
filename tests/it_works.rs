@@ -1,4 +1,3 @@
-use darpi::Error;
 use darpi_code_gen::{app, handler, path_type};
 use darpi_web::request::Path;
 use http::Method;
@@ -34,7 +33,7 @@ impl UserService for UserImpl {
 
 module! {
     MyModule {
-        components = [MyLogger, UserImpl],
+        components = [MyLogger, UserImpl, DateLoggerImpl],
         providers = [],
     }
 }
@@ -56,14 +55,43 @@ async fn hello_world(
     response
 }
 
+trait DateLogger: Interface {
+    fn log_date(&self);
+}
+
+#[derive(Component)]
+#[shaku(interface = DateLogger)]
+struct DateLoggerImpl {
+    #[shaku(inject)]
+    logger: Arc<dyn Logger>,
+    today: String,
+    year: usize,
+}
+
+impl DateLogger for DateLoggerImpl {
+    fn log_date(&self) {
+        self.logger
+            .log(&format!("Today is {}, {}", self.today, self.year));
+    }
+}
+
+fn make_container() -> MyModule {
+    let module = MyModule::builder()
+        .with_component_parameters::<DateLoggerImpl>(DateLoggerImplParameters {
+            today: "Jan 26".to_string(),
+            year: 2020,
+        })
+        .build();
+    module
+}
+
 #[tokio::test]
 async fn main() {
     //todo create logging, middleware
     // todo use FromRequest in handler to enable user defined types that have custom ser/de
-    //todo clean up code generation
     app!({
         address: "127.0.0.1:3000",
-        module: MyModule,
+        module: make_container => MyModule,
         bind: [
             {
                 route: "/hello_world/{name}",

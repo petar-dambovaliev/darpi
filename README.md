@@ -37,10 +37,41 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
          println!("{:#?}", arg)
      }
  }
+
+trait DateLogger: Interface {
+    fn log_date(&self);
+}
+
+#[derive(Component)]
+#[shaku(interface = DateLogger)]
+struct DateLoggerImpl {
+    #[shaku(inject)]
+    logger: Arc<dyn Logger>,
+    today: String,
+    year: usize,
+}
+
+impl DateLogger for DateLoggerImpl {
+    fn log_date(&self) {
+        self.logger
+            .log(&format!("Today is {}, {}", self.today, self.year));
+    }
+}
+
+fn make_container() -> Container {
+    let module = Container::builder()
+        .with_component_parameters::<DateLoggerImpl>(DateLoggerImplParameters {
+            today: "Jan 26".to_string(),
+            year: 2020,
+        })
+        .build();
+    module
+}
+
  
  module! {
      Container {
-         components = [MyLogger],
+         components = [MyLogger, DateLoggerImpl],
          providers = [],
      }
  }
@@ -88,7 +119,7 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
          // in this case, MyLogger type
          // any handler that has the trait Logger as an argument
          // will be given MyLogger
-         module: Container,
+         module: make_container => Container,
          bind: [
              {
                  // When a path argument is defined in the route,

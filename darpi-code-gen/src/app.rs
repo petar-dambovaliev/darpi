@@ -10,7 +10,8 @@ use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
-    token::Brace, token::Colon, token::Comma, Error, ExprLit, ExprPath, Lit, LitStr, Member,
+    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprLit, ExprPath, Lit,
+    LitStr, Member,
 };
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
@@ -64,10 +65,19 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
     };
 
     let (module_def, module_let, module_self) = module_path.map_or(Default::default(), |mp| {
-        let patj = mp.path.get_ident().expect("could not get module_ident");
+        let make_container_func = mp
+            .key
+            .path
+            .get_ident()
+            .expect("could not get container function");
+        let patj = mp
+            .value
+            .path
+            .get_ident()
+            .expect("could not get module_ident");
         (
             quote! {module: std::sync::Arc<#patj>,},
-            quote! {let module = std::sync::Arc::new(#patj::builder().build());},
+            quote! {let module = std::sync::Arc::new(#make_container_func());},
             quote! {module: module,},
         )
     });
@@ -283,10 +293,26 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
     }
 }
 
+#[derive(Debug, Clone)]
+struct ExprKeyValue {
+    key: ExprPath,
+    sep: FatArrow,
+    value: ExprPath,
+}
+
+impl syn::parse::Parse for ExprKeyValue {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let key: ExprPath = input.parse()?;
+        let sep: FatArrow = input.parse()?;
+        let value: ExprPath = input.parse()?;
+        Ok(Self { key, sep, value })
+    }
+}
+
 #[derive(Debug)]
 enum Expr {
     ExprArrayHandler(ExprArrayHandler),
-    Module(ExprPath),
+    Module(ExprKeyValue),
     ExprLit(ExprLit),
     ExprPath(ExprPath),
 }
@@ -331,7 +357,7 @@ impl syn::parse::Parse for FieldValue {
         let colon_token: Colon = parse_variant(input)?;
 
         let value = if member_ident == "module" {
-            let val: ExprPath = parse_variant(input)?;
+            let val: ExprKeyValue = parse_variant(input)?;
             Expr::Module(val)
         } else if member_ident == "bind" {
             let val: ExprArrayHandler = parse_variant(input)?;
@@ -475,7 +501,7 @@ impl syn::parse::Parse for ExprHandler {
 
 struct FieldResult {
     address: LitStr,
-    module_path: Option<ExprPath>,
+    module_path: Option<ExprKeyValue>,
     handlers: Vec<ExprHandler>,
 }
 
@@ -485,7 +511,7 @@ fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
         .iter()
         .find(|f| &f.member.to_string() == "module");
 
-    let module_path: Option<ExprPath> = module.map_or(Ok(None), |m| match &m.expr {
+    let module_path: Option<ExprKeyValue> = module.map_or(Ok(None), |m| match &m.expr {
         Expr::Module(module_path) => Ok(Some(module_path.clone())),
         _ => {
             return Err(Error::new(
