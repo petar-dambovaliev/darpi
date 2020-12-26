@@ -111,7 +111,8 @@ fn make_container() -> Container {
  
  #[tokio::main]
  async fn main() -> Result<(), Error> {
-    // the `run` macro creates and runs the server
+    // the `app` macro creates a server and allows the user to call
+    // the method `run` and await on that future
      app!({
         // the provided address is verified at compile time
          address: "127.0.0.1:3000",
