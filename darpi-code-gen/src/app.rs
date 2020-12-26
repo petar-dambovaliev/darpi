@@ -13,7 +13,7 @@ use syn::{
     token::Brace, token::Colon, token::Comma, Error, ExprLit, ExprPath, Lit, LitStr, Member,
 };
 
-pub(crate) fn make_run(input: TokenStream) -> Result<TokenStream, TokenStream> {
+pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
     let app_struct: AppStruct =
         syn::parse(input).unwrap_or_else(|e| panic!("app_struct: {:#?}", e));
 
@@ -98,7 +98,7 @@ pub(crate) fn make_run(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 }
             }
 
-             pub async fn start(self) {
+             pub async fn run(self) -> Result<(), darpi::Error> {
                 let address = self.address;
                 let module = self.module.clone();
                 let handlers = self.handlers.clone();
@@ -142,17 +142,17 @@ pub(crate) fn make_run(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 });
 
                 let server = darpi::Server::bind(&address).serve(make_svc);
-                if let Err(e) = server.await {
-                    eprintln!("server error: {}", e);
-                }
+                Ok(server.await?)
              }
         }
     };
 
     let tokens = quote! {
-        #route_possibilities
-        #app
-        App::new().start().await;
+        {
+            #route_possibilities
+            #app
+            App::new()
+        }
     };
     Ok(tokens.into())
 }

@@ -1,12 +1,12 @@
 #![forbid(unsafe_code)]
 
-pub use darpi_code_gen::{handler, path_type, query_type, run};
+pub use darpi_code_gen::{app, handler, path_type, query_type};
 pub use darpi_web::{
     request, request::Path, request::Query, response, route, route::ReqRoute, route::Route, Json,
 };
 pub use futures;
 pub use http::{Method, StatusCode};
-pub use hyper::{service, Body, Request, Response, Server};
+pub use hyper::{service, Body, Error, Request, Response, Server};
 use serde::{de, Deserialize, Deserializer};
 pub use serde_json;
 use std::fmt::Display;

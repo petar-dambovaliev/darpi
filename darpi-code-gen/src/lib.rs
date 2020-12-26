@@ -22,8 +22,8 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn run(input: TokenStream) -> TokenStream {
-    match app::make_run(input) {
+pub fn app(input: TokenStream) -> TokenStream {
+    match app::make_app(input) {
         Ok(r) => r,
         Err(e) => e,
     }
