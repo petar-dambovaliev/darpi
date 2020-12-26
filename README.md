@@ -20,7 +20,7 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
 ```
 `main.rs`
 ```rust
- use darpi::{handler, path_type, query_type, run, Json, Method, Path, Query};
+ use darpi::{handler, path_type, query_type, app, Json, Method, Path, Query, Error};
  use serde::{Deserialize, Serialize};
  use shaku::{module, Component, Interface};
  use std::sync::Arc;
@@ -79,9 +79,9 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
  }
  
  #[tokio::main]
- async fn main() {
+ async fn main() -> Result<(), Error> {
     // the `run` macro creates and runs the server
-     run!({
+     app!({
         // the provided address is verified at compile time
          address: "127.0.0.1:3000",
          // via the container we inject our dependencies
@@ -109,6 +109,8 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
                  handler: do_something
              },
          ],
-     });
+     })
+    .run()
+    .await
  }
 ```

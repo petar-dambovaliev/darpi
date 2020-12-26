@@ -1,4 +1,5 @@
-use darpi_code_gen::{handler, path_type, run};
+use darpi::Error;
+use darpi_code_gen::{app, handler, path_type};
 use darpi_web::request::Path;
 use http::Method;
 use serde::{Deserialize, Serialize};
@@ -60,7 +61,7 @@ async fn main() {
     //todo create logging, middleware
     // todo use FromRequest in handler to enable user defined types that have custom ser/de
     //todo clean up code generation
-    run!({
+    app!({
         address: "127.0.0.1:3000",
         module: MyModule,
         bind: [
