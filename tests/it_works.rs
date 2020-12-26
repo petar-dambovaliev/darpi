@@ -57,7 +57,7 @@ async fn hello_world(
 }
 
 #[tokio::test]
-async fn main() -> Result<(), Error> {
+async fn main() {
     //todo create logging, middleware
     // todo use FromRequest in handler to enable user defined types that have custom ser/de
     //todo clean up code generation
@@ -71,7 +71,5 @@ async fn main() -> Result<(), Error> {
                 handler: hello_world
             },
         ],
-    })
-    .run()
-    .await
+    });
 }
