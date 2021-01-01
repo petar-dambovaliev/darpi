@@ -131,6 +131,7 @@ impl<'a> ReqRoute<'a> {
 #[test]
 fn route_to_string() {
     let def_route = Route::try_from("/user/id/{article}").unwrap();
+    //let def_route = Route::try_from("/user/{id}/{article}").unwrap();
     let req_route = ReqRoute::try_from("/user/id/1").unwrap();
     assert_eq!(def_route, req_route);
     let args = req_route.extract_args(&def_route).unwrap();

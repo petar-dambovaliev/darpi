@@ -2,10 +2,12 @@
 
 pub use darpi_code_gen::{app, handler, path_type, query_type};
 pub use darpi_web::{
-    request, request::Path, request::Query, response, route, route::ReqRoute, route::Route, Json,
+    logger, middleware, request, request::Path, request::Query, response, route, route::ReqRoute,
+    route::Route, Json,
 };
+
 pub use futures;
-pub use http::{Method, StatusCode};
+pub use http::{header, request::Parts as RequestParts, Method, StatusCode};
 pub use hyper::{service, Body, Error, Request, Response, Server};
 use serde::{de, Deserialize, Deserializer};
 pub use serde_json;

@@ -24,3 +24,7 @@ darpi-code-gen = { path = "./darpi-code-gen" }
 
 [dev-dependencies]
 tokio = {version = "0.2.11", features = ["full"]}
+jsonwebtoken = "=7.2"
+futures-util = "0.3.8"
+derive_more = "0.99.11"
+async-trait = "0.1.42"

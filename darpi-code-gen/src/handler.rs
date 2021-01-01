@@ -3,14 +3,64 @@ use proc_macro2::Ident;
 use quote::{format_ident, quote};
 use syn::export::ToTokens;
 use syn::{
-    parse_macro_input, AttributeArgs, Error, FnArg, GenericArgument, ItemFn, PatType, Path,
-    PathArguments, PathSegment, Type,
+    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, FnArg,
+    GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
 };
+
+use crate::app::ExprKeyValue;
+use syn::parse_quote::ParseQuote;
+use syn::punctuated::Punctuated;
+
+struct Methods {
+    methods: Punctuated<ExprKeyValue, Comma>,
+}
+
+impl syn::parse::Parse for Methods {
+    fn parse(input: ParseStream) -> Result<Self, Error> {
+        let methods: Punctuated<ExprKeyValue, Comma> = if input.peek(Bracket) {
+            let content;
+            let _ = bracketed!(content in input);
+            Punctuated::parse(&content)?
+        } else {
+            let mut p: Punctuated<ExprKeyValue, Comma> = Punctuated::new();
+            let expr: ExprKeyValue = input.parse()?;
+            p.push(expr);
+            p
+        };
+
+        Ok(Methods { methods })
+    }
+}
 
 pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
 pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
 pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
 pub(crate) const MODULE_PREFIX: &str = "module";
+
+fn implement_getters(methods: Methods, name: &Ident) -> proc_macro2::TokenStream {
+    let mut res = vec![];
+
+    for m in methods.methods {
+        let return_type = m.key.clone();
+        let return_val = m.value.clone();
+        let func_name = format_ident!(
+            "{}",
+            return_type.to_token_stream().to_string().replace("::", "")
+        );
+
+        res.push(quote! {
+            fn #func_name() -> #return_type {
+                #return_val
+            }
+        });
+    }
+
+    quote! {
+        impl #name {
+             #(#res )*
+        }
+    }
+}
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let func = parse_macro_input!(input as ItemFn);
@@ -21,15 +71,14 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             .into();
     }
 
-    let attr_args = parse_macro_input!(args as AttributeArgs);
+    let func_name = &func.sig.ident;
+    let mut impl_getters = proc_macro2::TokenStream::new();
 
-    if attr_args.len() > 0 {
-        return Error::new_spanned(func, "Arguments not supported")
-            .to_compile_error()
-            .into();
+    if !args.is_empty() {
+        let methods = parse_macro_input!(args as Methods);
+        impl_getters = implement_getters(methods, func_name);
     }
 
-    let func_name = &func.sig.ident;
     let no_body = format_ident!("{}_{}", NO_BODY_PREFIX, func_name);
     let mut body_checker = proc_macro2::TokenStream::new();
     let mut wants_body = false;
@@ -154,6 +203,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
            #func_copy
            #fn_expand_call
        }
+       #impl_getters
     };
     //panic!("{}", output.to_string());
     output.into()

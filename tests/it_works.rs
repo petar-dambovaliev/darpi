@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use darpi_code_gen::{app, handler, path_type};
 use darpi_web::request::Path;
 use http::Method;
@@ -9,8 +10,9 @@ trait Logger: Interface {
     fn log(&self, arg: &dyn std::fmt::Debug);
 }
 
+#[async_trait]
 trait UserService: Interface {
-    fn log(&self, arg: &dyn std::fmt::Debug);
+    async fn log(&self, arg: &(dyn std::fmt::Debug + Sync));
 }
 
 #[derive(Component)]
@@ -25,8 +27,9 @@ impl Logger for MyLogger {
 #[derive(Component)]
 #[shaku(interface = UserService)]
 struct UserImpl;
+#[async_trait]
 impl UserService for UserImpl {
-    fn log(&self, arg: &dyn std::fmt::Debug) {
+    async fn log(&self, arg: &(dyn std::fmt::Debug + Sync)) {
         println!("{:#?}", arg)
     }
 }
@@ -43,8 +46,14 @@ module! {
 pub struct HelloWorldPath {
     name: usize,
 }
+#[derive(Eq, PartialEq)]
+enum UserRole {
+    Admin,
+    Regular,
+    None,
+}
 
-#[handler]
+#[handler([UserRole => UserRole::Admin])]
 async fn hello_world(
     p: Path<HelloWorldPath>,
     logger: Arc<dyn Logger>,
@@ -52,6 +61,7 @@ async fn hello_world(
 ) -> String {
     let response = format!("hello_world: user {}", p.name);
     logger.log(&response);
+    user_service.log(&response).await;
     response
 }
 

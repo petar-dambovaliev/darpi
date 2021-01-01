@@ -294,10 +294,10 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
 }
 
 #[derive(Debug, Clone)]
-struct ExprKeyValue {
-    key: ExprPath,
-    sep: FatArrow,
-    value: ExprPath,
+pub(crate) struct ExprKeyValue {
+    pub key: ExprPath,
+    pub sep: FatArrow,
+    pub value: ExprPath,
 }
 
 impl syn::parse::Parse for ExprKeyValue {
