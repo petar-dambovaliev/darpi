@@ -160,11 +160,16 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                                 .last()
                                 .expect("cannot get secment");
 
-                            module_full_req.push(quote! {shaku::HasComponent<#tp + 'static>});
-                            fn_call_module_args.push(
-                            quote! {#module_ident: std::sync::Arc<impl shaku::HasComponent<#tp>>},
-                        );
-                            fn_call_module_generic = Default::default();
+                            let last = tp.path.segments.last().expect("PathSegment");
+                            let args = &last.arguments;
+                            if let PathArguments::AngleBracketed(ab) = args {
+                                let args = &ab.args;
+                                module_full_req.push(quote! {shaku::HasComponent<#args + 'static>});
+                                fn_call_module_args.push(
+                                    quote! {#module_ident: std::sync::Arc<impl shaku::HasComponent<#args>>},
+                                );
+                                fn_call_module_generic = Default::default();
+                            }
                         }
                         (i, ts)
                     }
@@ -243,6 +248,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
             }
         }
     };
+    //panic!("{}", tokens.to_string());
     tokens.into()
 }
 

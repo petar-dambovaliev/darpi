@@ -1,7 +1,6 @@
 use hyper::{body::HttpBody, Body};
 
 use crate::response::ResponderError;
-use async_trait::async_trait;
 use derive_more::{Display, From};
 use futures::Future;
 use http::request::Parts;
@@ -29,14 +28,6 @@ where
         Ok(())
     }
     fn extract(b: Body) -> Self::Future;
-}
-
-#[async_trait]
-pub trait FromRequestParts<T, E>: Sync + Send
-where
-    E: ResponderError,
-{
-    async fn extract(&self, p: &Parts) -> Result<T, E>;
 }
 
 #[derive(Debug, Display, From)]
