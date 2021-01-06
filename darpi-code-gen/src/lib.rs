@@ -7,7 +7,7 @@ mod middleware;
 mod request;
 
 use proc_macro::TokenStream;
-use syn::{parse::ParseStream, parse_macro_input, ExprLit};
+use syn::{parse_macro_input, ExprLit};
 
 #[proc_macro]
 pub fn format(input: TokenStream) -> TokenStream {
@@ -36,6 +36,11 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn middleware(args: TokenStream, input: TokenStream) -> TokenStream {
     middleware::make_middleware(args, input)
+}
+
+#[proc_macro_attribute]
+pub fn guard(args: TokenStream, input: TokenStream) -> TokenStream {
+    middleware::make_guard(args, input)
 }
 
 #[proc_macro]

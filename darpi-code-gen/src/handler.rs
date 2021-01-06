@@ -1,34 +1,74 @@
+use crate::app::ExprKeyValue;
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::{format_ident, quote};
 use syn::export::ToTokens;
-use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, FnArg,
-    GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
-};
-
-use crate::app::ExprKeyValue;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
+use syn::token::Token;
+use syn::{
+    bracketed, parenthesized, parse::ParseStream, parse_macro_input, token, token::Bracket,
+    token::Comma, token::FatArrow, Error, ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path,
+    PathArguments, PathSegment, Type,
+};
 
-struct Methods {
-    methods: Punctuated<ExprKeyValue, Comma>,
+/*
+//todo add middleware
+// move middleware to the handler macro
+let mut request_middlewares = vec![];
+el.middleware.elems.iter().for_each(|m| {
+    if let syn::Expr::Path(ep) = m {
+        request_middlewares.push(quote! {
+         #ep::call_RequestMiddleware(r, inner_module)?;
+        });
+    }
+});
+
+#(#request_middlewares )*
+
+ */
+
+pub(crate) fn make_container(mut args: TokenStream, input: TokenStream) -> TokenStream {
+    args.extend(input);
+    args
 }
 
-impl syn::parse::Parse for Methods {
+#[derive(Debug)]
+struct Arguments {
+    module: Option<Ident>,
+    middleware: Option<Punctuated<ExprCall, Comma>>,
+}
+
+impl syn::parse::Parse for Arguments {
     fn parse(input: ParseStream) -> Result<Self, Error> {
-        let methods: Punctuated<ExprKeyValue, Comma> = if input.peek(Bracket) {
+        let mut module = None;
+        let mut middleware = None;
+
+        if !input.is_empty() && !input.peek(Bracket) {
+            let f: Option<Ident> = Some(input.parse()?);
+            module = f;
+        } else if !input.is_empty() {
             let content;
             let _ = bracketed!(content in input);
-            Punctuated::parse(&content)?
-        } else {
-            let mut p: Punctuated<ExprKeyValue, Comma> = Punctuated::new();
-            let expr: ExprKeyValue = input.parse()?;
-            p.push(expr);
-            p
-        };
+            let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
+            middleware = m;
+        }
 
-        Ok(Methods { methods })
+        if input.peek(Comma) {
+            let _: Comma = input.parse()?;
+        }
+
+        if !input.is_empty() && module.is_none() && !input.peek(Bracket) {
+            let f: Option<Ident> = Some(input.parse()?);
+            module = f;
+        } else if !input.is_empty() {
+            let content;
+            let _ = bracketed!(content in input);
+            let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
+            middleware = m;
+        }
+
+        Ok(Arguments { module, middleware })
     }
 }
 
@@ -37,29 +77,36 @@ pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
 pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
 pub(crate) const MODULE_PREFIX: &str = "module";
 
-fn implement_getters(methods: Methods, name: &Ident) -> proc_macro2::TokenStream {
-    let mut res = vec![];
+fn expand_middlewares_impl(
+    container: &Option<Ident>,
+    handler_name: &Ident,
+    mut p: Punctuated<ExprCall, Comma>,
+) -> Vec<proc_macro2::TokenStream> {
+    let mut middleware_impl = vec![];
+    p.iter_mut().for_each(|e| {
+        let name = &e.func;
+        let handler_name_request = format_ident!("{}_request", handler_name);
+        let handler_name_response = format_ident!("{}_response", handler_name);
+        let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
+            quote! {Expect(#arg)}
+        }).collect();
 
-    for m in methods.methods {
-        let return_type = m.key.clone();
-        let return_val = m.value.clone();
-        let func_name = format_ident!(
-            "{}",
-            return_type.to_token_stream().to_string().replace("::", "")
-        );
+        let (def_c, give_c) = container.as_ref().map_or(Default::default(), |c| (quote!{c: std::sync::Arc<#container>,}, quote!{c}));
 
-        res.push(quote! {
-            fn #func_name() -> #return_type {
-                #return_val
+        let q = quote! {
+            impl #name {
+                async fn #handler_name_request(#def_c p: &darpi::RequestParts) -> Result<(), impl darpi::response::ResponderError> {
+                    #name::call_Request(p, #(#args ,)*  #give_c).await
+                }
+                async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), impl darpi::response::ResponderError> {
+                    #name::call_Response(r, #(#args ,)* #give_c).await
+                }
             }
-        });
-    }
+        };
 
-    quote! {
-        impl #name {
-             #(#res )*
-        }
-    }
+        middleware_impl.push(q);
+    });
+    middleware_impl
 }
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -72,11 +119,18 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     }
 
     let func_name = &func.sig.ident;
-    let mut impl_getters = proc_macro2::TokenStream::new();
+    let mut module = Default::default();
+    let mut module_ident = format_ident!("{}", MODULE_PREFIX);
+    let mut middlewares_impl = Default::default();
 
     if !args.is_empty() {
-        let methods = parse_macro_input!(args as Methods);
-        impl_getters = implement_getters(methods, func_name);
+        let arguments = parse_macro_input!(args as Arguments);
+        if let Some(m) = arguments.middleware {
+            middlewares_impl = expand_middlewares_impl(&arguments.module, func_name, m)
+        }
+        if let Some(m) = arguments.module {
+            module = quote! {#module_ident: std::sync::Arc<#m>};
+        }
     }
 
     let no_body = format_ident!("{}_{}", NO_BODY_PREFIX, func_name);
@@ -98,18 +152,14 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let func_copy = func.clone();
     let mut make_args = vec![];
     let mut give_args = vec![];
-    let mut module_full_req = vec![];
     let mut i = 0_u32;
     let mut n_args = 0u8;
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
     let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
-    let mut fn_call_generic = quote! {,T};
-    let mut fn_call_module_args = vec![];
 
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
-            let module_ident = format_ident!("{}_{}", MODULE_PREFIX, i);
             //todo change the return type to enum
             //todo add nopath trait to check from handler if path arg is not used
             let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
@@ -119,20 +169,11 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     n_args += 1;
                     has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
                     (i, ts)
-                },
+                }
                 HandlerArgs::Option(i, ts) => (i, ts),
-                HandlerArgs::Module(i, ts) => {
-                    if let Type::Path(tp) = *tp.ty.clone() {
-                        let segment = tp.path.segments.first().unwrap();
-                        if let PathArguments::AngleBracketed(ab) = &segment.arguments {
-                            let user_type = &ab.args;
-                            module_full_req.push(quote! {shaku::HasComponent<#user_type + 'static>});
-                            fn_call_module_args.push(quote! {#module_ident: std::sync::Arc<impl shaku::HasComponent<#user_type + 'static>>});
-                            fn_call_generic = Default::default();
-                        }
-                    }
-                    (i, ts)
-                },
+                //todo check if handlers has module args and validate user passed in a container module
+                // for handler and middleware
+                HandlerArgs::Module(i, ts) => (i, ts),
             };
 
             make_args.push(method_resolve);
@@ -147,16 +188,12 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             .into();
     }
 
-    if fn_call_module_args.is_empty() {
-        fn_call_module_args.push(quote! {m: std::sync::Arc<T>});
-    }
-
     let fn_call = quote! {
-        async fn call<'a #fn_call_generic>(
+        async fn call<'a>(
             r: darpi::Request<darpi::Body>,
-            (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>),
-            #(#fn_call_module_args ,)*) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
+               use shaku::HasComponent;
 
                #(#make_args )*
                Ok(async {
@@ -165,28 +202,21 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
     };
 
-    let mut inject_args = vec![];
-    module_full_req
-        .iter()
-        .for_each(|_| inject_args.push(quote! {m.clone()}));
-
-    let mut fn_expand_where = proc_macro2::TokenStream::new();
-    let mut fn_expand_self_call = quote! {Self::call(r, (req_route, req_args), m).await};
-
-    if !module_full_req.is_empty() {
-        fn_expand_where = quote! {where T: #(#module_full_req +)*};
-        fn_expand_self_call = quote! {Self::call(r, (req_route, req_args), #(#inject_args),*).await}
-    }
+    let module_ident = if !module.is_empty() {
+        module_ident.to_token_stream()
+    } else {
+        Default::default()
+    };
 
     let fn_expand_call = quote! {
         #[inline]
-            async fn expand_call<'a, T>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), m: std::sync::Arc<T>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible>
-            #fn_expand_where {
-                #fn_expand_self_call
+            async fn expand_call<'a, T>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+                Self::call(r, (req_route, req_args), #module_ident).await
             }
     };
 
     let output = quote! {
+        #(#middlewares_impl )*
         #[allow(non_camel_case_types, missing_docs)]
         trait #has_path_args {}
         #[allow(non_camel_case_types, missing_docs)]
@@ -203,7 +233,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
            #func_copy
            #fn_expand_call
        }
-       #impl_getters
     };
     //panic!("{}", output.to_string());
     output.into()

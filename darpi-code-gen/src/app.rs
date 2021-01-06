@@ -10,8 +10,8 @@ use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
-    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprLit, ExprPath, Lit,
-    LitStr, Member,
+    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprArray, ExprLit, ExprPath,
+    Lit, LitStr, Member,
 };
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
@@ -257,6 +257,8 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
         });
     });
 
+    //todo this is sorting routes but not routes match
+    // check if this is a bug
     routes.sort_by(|left, right| {
         let left_matches: Vec<usize> = left.1.match_indices('{').map(|t| t.0).collect();
 

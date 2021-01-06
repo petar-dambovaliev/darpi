@@ -1,15 +1,13 @@
 use async_trait::async_trait;
-use darpi::header::AUTHORIZATION;
 use darpi::middleware::Expect;
 use darpi::RequestParts;
-use darpi::{middleware::RequestMiddleware, response::ResponderError, Body, Request};
-use darpi_code_gen::middleware;
+use darpi::{response::ResponderError, Method};
+use darpi_code_gen::{app, container, guard, handler, middleware};
 use derive_more::{Display, From};
-use futures_util::future::{err, ok, Ready};
-use http::request::Parts;
 use shaku::{module, Component, Interface};
-use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::Once;
+use UserRole::Admin;
 
 #[derive(Debug, Display, From)]
 enum Error {
@@ -21,42 +19,45 @@ enum Error {
 
 impl ResponderError for Error {}
 
-#[derive(Eq, PartialEq)]
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
 enum UserRole {
-    Admin,
-    Regular,
     None,
+    Regular,
+    Admin,
 }
 
 #[derive(Component)]
-#[shaku(interface = UserExtractorInterface)]
-struct UserExtractor;
+#[shaku(interface = UserExtractor)]
+struct UserExtractorImpl;
 
 #[async_trait]
-impl UserExtractorInterface for UserExtractor {
+impl UserExtractor for UserExtractorImpl {
     async fn extract(&self, p: &RequestParts) -> Result<UserRole, Error> {
         Ok(UserRole::Admin)
     }
 }
 
 #[async_trait]
-trait UserExtractorInterface: Interface {
+trait UserExtractor: Interface {
     async fn extract(&self, p: &RequestParts) -> Result<UserRole, Error>;
 }
 
-#[middleware(Request)]
-async fn access_control(
-    expected_role: Expect<UserRole>,
-    user_role_extractor: Arc<dyn UserExtractorInterface>,
-    p: &RequestParts,
-) -> Result<(), Error> {
-    let actual_role = user_role_extractor.extract(p).await?;
-
-    if expected_role != actual_role {
-        return Err(Error::AccessDenied);
+module! {
+    Container {
+        components = [UserExtractorImpl],
+        providers = [],
     }
-    Ok(())
+}
+
+fn make_container() -> Container {
+    Container::builder().build()
 }
 
 #[test]
-fn main() {}
+fn main() {
+    static INIT: Once = Once::new();
+    let mut container;
+    INIT.call_once(|| {
+        container = make_container();
+    });
+}

@@ -2,6 +2,7 @@ use hyper::{Body, Response, StatusCode};
 
 use bytes::BytesMut;
 use http::header;
+use serde::export::Formatter;
 use std::convert::Infallible;
 use std::io::Write;
 use std::{fmt, io};

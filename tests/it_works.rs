@@ -53,7 +53,7 @@ enum UserRole {
     None,
 }
 
-#[handler([UserRole => UserRole::Admin])]
+#[handler]
 async fn hello_world(
     p: Path<HelloWorldPath>,
     logger: Arc<dyn Logger>,
@@ -101,7 +101,6 @@ async fn main() {
     // todo use FromRequest in handler to enable user defined types that have custom ser/de
     app!({
         address: "127.0.0.1:3000",
-        module: make_container => MyModule,
         bind: [
             {
                 route: "/hello_world/{name}",

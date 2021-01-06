@@ -2,6 +2,7 @@ use crate::response::ResponderError;
 use crate::{Body, Response};
 use async_trait::async_trait;
 use http::request::Parts;
+use std::cmp::Ordering;
 
 #[async_trait]
 pub trait RequestMiddleware<E: ResponderError> {
@@ -30,5 +31,23 @@ where
 {
     fn eq(&self, other: &Self) -> bool {
         &self.0 == &other.0
+    }
+}
+
+impl<T> PartialOrd<T> for Expect<T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
+        self.0.partial_cmp(other)
+    }
+}
+
+impl<T> PartialOrd for Expect<T>
+where
+    T: PartialOrd,
+{
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.0.partial_cmp(&other.0)
     }
 }
