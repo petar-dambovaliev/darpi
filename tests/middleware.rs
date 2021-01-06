@@ -77,14 +77,15 @@ async fn hello_world(logger: Arc<dyn UserExtractor>) {
 
 #[tokio::test]
 async fn main() {
-    // app!({
-    //     address: "127.0.0.1:3000",
-    //     bind: [
-    //         {
-    //             route: "/hello_world",
-    //             method: Method::GET,
-    //             handler: hello_world,
-    //         },
-    //     ],
-    // });
+    app!({
+        address: "127.0.0.1:3000",
+        module: make_container => Container,
+        bind: [
+            {
+                route: "/hello_world",
+                method: Method::GET,
+                handler: hello_world,
+            },
+        ],
+    });
 }

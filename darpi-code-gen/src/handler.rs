@@ -210,7 +210,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let fn_expand_call = quote! {
         #[inline]
-            async fn expand_call<'a, T>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            async fn expand_call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                 Self::call(r, (req_route, req_args), #module_ident).await
             }
     };
