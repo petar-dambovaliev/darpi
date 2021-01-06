@@ -266,7 +266,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
 fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     quote! {
-        let #arg_name: #last = match r.uri().query() {
+        let #arg_name: #last = match &parts.uri.query() {
             Some(q) => {
                 let #arg_name: #last = match Query::from_query(q) {
                     Ok(w) => Some(w),
@@ -287,7 +287,7 @@ fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream 
     );
     quote! {
         #respond_err
-        let #arg_name = match r.uri().query() {
+        let #arg_name = match &parts.uri.query() {
             Some(q) => q,
             None => return Ok(respond_to_err::#inner(darpi::request::QueryPayloadError::NotExist))
         };
@@ -348,7 +348,6 @@ fn make_json_body(
     let output = quote! {
         use darpi::request::FromRequestBody;
         use darpi::response::ResponderError;
-        let (_, body) = r.into_parts();
 
         if let Err(e) = Json::#inner::assert_content_size(&body) {
             return Ok(e.respond_err());

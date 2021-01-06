@@ -1,6 +1,6 @@
 use hyper::{Body, Response, StatusCode};
 
-use bytes::BytesMut;
+use bytes::{Buf, BytesMut};
 use http::header;
 use serde::export::Formatter;
 use std::convert::Infallible;
@@ -89,11 +89,12 @@ pub trait ResponderError: fmt::Display {
     fn respond_err(&self) -> Response<Body> {
         let mut buf = BytesMut::new();
         let _ = write!(ByteWriter(&mut buf), "{}", self);
+        let b = buf.freeze();
 
         Response::builder()
             .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
             .status(self.status_code())
-            .body(Body::from(buf.to_vec()))
+            .body(Body::from(b))
             .expect("this cannot happen")
     }
 }

@@ -1,18 +1,10 @@
-use async_trait::async_trait;
-use darpi_code_gen::{app, handler, path_type};
-use darpi_web::request::Path;
-use http::Method;
+use darpi::{app, handler, path_type, query_type, Error, Json, Method, Path, Query};
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
 use std::sync::Arc;
 
 trait Logger: Interface {
     fn log(&self, arg: &dyn std::fmt::Debug);
-}
-
-#[async_trait]
-trait UserService: Interface {
-    async fn log(&self, arg: &(dyn std::fmt::Debug + Sync));
 }
 
 #[derive(Component)]
@@ -22,47 +14,6 @@ impl Logger for MyLogger {
     fn log(&self, arg: &dyn std::fmt::Debug) {
         println!("{:#?}", arg)
     }
-}
-
-#[derive(Component)]
-#[shaku(interface = UserService)]
-struct UserImpl;
-#[async_trait]
-impl UserService for UserImpl {
-    async fn log(&self, arg: &(dyn std::fmt::Debug + Sync)) {
-        println!("{:#?}", arg)
-    }
-}
-
-module! {
-    MyModule {
-        components = [MyLogger, UserImpl, DateLoggerImpl],
-        providers = [],
-    }
-}
-
-#[path_type]
-#[derive(Deserialize, Serialize, Debug)]
-pub struct HelloWorldPath {
-    name: usize,
-}
-#[derive(Eq, PartialEq)]
-enum UserRole {
-    Admin,
-    Regular,
-    None,
-}
-
-#[handler(MyModule)]
-async fn hello_world(
-    p: Path<HelloWorldPath>,
-    logger: Arc<dyn Logger>,
-    user_service: Arc<dyn UserService>,
-) -> String {
-    let response = format!("hello_world: user {}", p.name);
-    logger.log(&response);
-    user_service.log(&response).await;
-    response
 }
 
 trait DateLogger: Interface {
@@ -85,8 +36,8 @@ impl DateLogger for DateLoggerImpl {
     }
 }
 
-fn make_container() -> MyModule {
-    let module = MyModule::builder()
+fn make_container() -> Container {
+    let module = Container::builder()
         .with_component_parameters::<DateLoggerImpl>(DateLoggerImplParameters {
             today: "Jan 26".to_string(),
             year: 2020,
@@ -95,19 +46,79 @@ fn make_container() -> MyModule {
     module
 }
 
-#[tokio::test]
-async fn main() {
-    //todo create logging, middleware
-    // todo use FromRequest in handler to enable user defined types that have custom ser/de
+module! {
+    Container {
+        components = [MyLogger, DateLoggerImpl],
+        providers = [],
+    }
+}
+
+#[path_type]
+#[query_type]
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Name {
+    name: String,
+}
+
+// Path<Name> is extracted from the registered path "/hello_world/{name}"
+// and it is always mandatory. A request without "{name}" will result
+// in the request path not matching the handler. It will either match another
+// handler or result in an 404
+// Option<Query<Name>> is extracted from the url query "?name=jason"
+// it is optional, as the type suggests. To make it mandatory, simply
+// remove the Option type. If there is a Query<T> in the handler and
+// an incoming request url does not contain the query parameters, it will
+// result in an error response
+#[handler(Container)]
+async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logger>) -> String {
+    let other = q.map_or("nobody".to_owned(), |n| n.0.name);
+    let response = format!("{} sends hello to {}", p.name, other);
+    logger.log(&response);
+    response
+}
+
+// Json<Name> is extracted from the request body
+// failure to do so will result in an error response
+#[handler(Container)]
+async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger>) -> String {
+    let response = format!("{} sends hello to {}", p.name, payload.name);
+    logger.log(&response);
+    response
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    // the `app` macro creates a server and allows the user to call
+    // the method `run` and await on that future
     app!({
+       // the provided address is verified at compile time
         address: "127.0.0.1:3000",
-        module: make_container => MyModule,
+        // via the container we inject our dependencies
+        // in this case, MyLogger type
+        // any handler that has the trait Logger as an argument
+        // will be given MyLogger
+        module: make_container => Container,
         bind: [
             {
+                // When a path argument is defined in the route,
+                // the handler is required to have Path<T> as an argument
+                // if not present, it will result in a compilation error
                 route: "/hello_world/{name}",
                 method: Method::GET,
+                // handlers bound with a GET method are not allowed
+                // to request a body(payload) from the request.
+                // Json<T> argument would result in a compilation error
                 handler: hello_world
             },
+            {
+                route: "/hello_world/{name}",
+                method: Method::POST,
+                // the POST method allows this handler to have
+                // Json<Name> as an argument
+                handler: do_something
+            },
         ],
-    });
+    })
+    .run()
+    .await
 }

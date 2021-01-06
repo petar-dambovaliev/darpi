@@ -20,11 +20,18 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
 ```
 `main.rs`
 ```rust
- use darpi::{handler, path_type, query_type, app, Json, Method, Path, Query, Error};
- use serde::{Deserialize, Serialize};
- use shaku::{module, Component, Interface};
- use std::sync::Arc;
+use async_trait::async_trait;
+use darpi::{
+    middleware::Expect, response::ResponderError, Json, Method, Path, Query, RequestParts,
+};
+use darpi_code_gen::{app, handler, middleware, path_type, query_type};
+use derive_more::{Display, From};
+use serde::{Deserialize, Serialize};
+use shaku::{module, Component, Interface};
+use std::sync::Arc;
+use UserRole::Admin;
  
+///////////// setup dependencies with shaku ///////////
  trait Logger: Interface {
      fn log(&self, arg: &dyn std::fmt::Debug);
  }
@@ -75,6 +82,54 @@ fn make_container() -> Container {
          providers = [],
      }
  }
+//////////////////////////
+
+
+#[derive(Debug, Display, From)]
+enum Error {
+    #[display(fmt = "no auth header")]
+    NoAuthHeaderError,
+    #[display(fmt = "Access denied")]
+    AccessDenied,
+}
+
+impl ResponderError for Error {}
+
+#[derive(Eq, PartialEq, Ord, PartialOrd)]
+enum UserRole {
+    None,
+    Regular,
+    Admin,
+}
+
+
+// there are 2 types of middleware `Request` and `Response`
+// the constant argument that needs to be present is &RequestParts
+// everything else is up to the user
+// Arc<dyn UserExtractor> types are injected from the shaku container
+// Expect<UserRole> is a special type that is provided by the user when
+// the middleware is linked to a handler. This allows the expected value
+// to be different per handler + middleware
+// middlewares are obgligated to return Result<(), impl ResponderErr>
+// if a middleware returns an Err(e) all work is aborted and the coresponding
+// response is sent to the user
+#[middleware(Request)]
+async fn access_control(
+    user_role_extractor: Arc<dyn UserExtractor>,
+    p: &RequestParts,
+    expected_role: Expect<UserRole>,
+) -> Result<(), Error> {
+    if expected_role == UserRole::None {
+        return Ok(());
+    }
+    let actual_role = user_role_extractor.extract(p).await?;
+
+    if expected_role > actual_role {
+        return Err(Error::AccessDenied);
+    }
+    Ok(())
+}
+
  
  #[path_type]
  #[query_type]
@@ -83,31 +138,34 @@ fn make_container() -> Container {
      name: String,
  }
  
- // Path<Name> is extracted from the registered path "/hello_world/{name}"
- // and it is always mandatory. A request without "{name}" will result
- // in the request path not matching the handler. It will either match another
- // handler or result in an 404
- // Option<Query<Name>> is extracted from the url query "?name=jason"
- // it is optional, as the type suggests. To make it mandatory, simply
- // remove the Option type. If there is a Query<T> in the handler and
- // an incoming request url does not contain the query parameters, it will
- // result in an error response
- #[handler]
- async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logger>) -> String {
-     let other = q.map_or("nobody".to_owned(), |n| n.0.name);
-     let response = format!("{} sends hello to {}", p.name, other);
-     logger.log(&response);
-     response
- }
+// Path<Name> is extracted from the registered path "/hello_world/{name}"
+// and it is always mandatory. A request without "{name}" will result
+// in the request path not matching the handler. It will either match another
+// handler or result in an 404
+// Option<Query<Name>> is extracted from the url query "?name=jason"
+// it is optional, as the type suggests. To make it mandatory, simply
+// remove the Option type. If there is a Query<T> in the handler and
+// an incoming request url does not contain the query parameters, it will
+// result in an error response
+#[handler(Container)]
+async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logger>) -> String {
+    let other = q.map_or("nobody".to_owned(), |n| n.0.name);
+    let response = format!("{} sends hello to {}", p.name, other);
+    logger.log(&response);
+    response
+}
  
- // Json<Name> is extracted from the request body
- // failure to do so will result in an error response
- #[handler]
- async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger>) -> String {
-     let response = format!("{} sends hello to {}", p.name, payload.name);
-     logger.log(&response);
-     response
- }
+// the handler macro has 2 optional arguments
+// the shaku container type and a collection of middlewares
+// the enum variant `Admin` is coresponding to the middlewre `access_control`'s Expect<UserRole>
+// Json<Name> is extracted from the request body
+// failure to do so will result in an error response
+#[handler(Container, [access_control(Admin)])]
+async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger>) -> String {
+    let response = format!("{} sends hello to {}", p.name, payload.name);
+    logger.log(&response);
+    response
+}
  
  #[tokio::main]
  async fn main() -> Result<(), Error> {
