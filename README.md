@@ -168,7 +168,7 @@ async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger
 }
  
  #[tokio::main]
- async fn main() -> Result<(), Error> {
+ async fn main() -> Result<(), darpi::Error> {
     // the `app` macro creates a server and allows the user to call
     // the method `run` and await on that future
      app!({
