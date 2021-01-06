@@ -251,7 +251,9 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let p: Path = parse_str(p).unwrap();
 
     let tokens = quote! {
+        #[allow(non_camel_case_types, missing_docs)]
         pub struct #name;
+        #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
             async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T>) -> Result<(), #err_ident> #fn_call_module_where {

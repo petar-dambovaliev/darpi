@@ -120,13 +120,33 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let func_name = &func.sig.ident;
     let mut module = Default::default();
-    let mut module_ident = format_ident!("{}", MODULE_PREFIX);
+    let module_ident = format_ident!("{}", MODULE_PREFIX);
     let mut middlewares_impl = Default::default();
+    let mut middleware_req = vec![];
+    let mut middleware_res = vec![];
 
     if !args.is_empty() {
         let arguments = parse_macro_input!(args as Arguments);
         if let Some(m) = arguments.middleware {
-            middlewares_impl = expand_middlewares_impl(&arguments.module, func_name, m)
+            middlewares_impl = expand_middlewares_impl(&arguments.module, func_name, m.clone());
+
+            let h_req = format_ident!("{}_request", func_name);
+            let h_res = format_ident!("{}_response", func_name);
+            m.iter().for_each(|e| {
+                let name = &e.func;
+
+                middleware_req.push(quote! {
+                    if let Err(e) = #name::#h_req(#module_ident.clone(), &parts).await {
+                        return Ok(e.respond_err());
+                    }
+                });
+
+                middleware_res.push(quote! {
+                    if let Err(e) = #name::#h_res(#module_ident.clone(), &rb).await {
+                        return Ok(e.respond_err());
+                    }
+                });
+            });
         }
         if let Some(m) = arguments.module {
             module = quote! {#module_ident: std::sync::Arc<#m>};
@@ -190,7 +210,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let fn_call = quote! {
         async fn call<'a>(
-            r: darpi::Request<darpi::Body>,
+            parts: darpi::RequestParts,
+            body: darpi::Body,
             (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
                use shaku::HasComponent;
@@ -210,12 +231,17 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let fn_expand_call = quote! {
         #[inline]
-            async fn expand_call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
-                Self::call(r, (req_route, req_args), #module_ident).await
-            }
+        async fn expand_call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            let (parts, body) = r.into_parts();
+            #(#middleware_req )*
+            let rb = Self::call(parts, body, (req_route, req_args), #module_ident.clone()).await.unwrap();
+            #(#middleware_res )*
+            Ok(rb)
+        }
     };
 
     let output = quote! {
+        #[allow(non_camel_case_types, missing_docs)]
         #(#middlewares_impl )*
         #[allow(non_camel_case_types, missing_docs)]
         trait #has_path_args {}
