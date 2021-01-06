@@ -2,9 +2,9 @@ use async_trait::async_trait;
 use darpi::middleware::Expect;
 use darpi::RequestParts;
 use darpi::{response::ResponderError, Method};
-use darpi_code_gen::{app, guard, handler, middleware};
+use darpi_code_gen::{app, handler, middleware};
 use derive_more::{Display, From};
-use shaku::{module, Component, HasComponent, Interface};
+use shaku::{module, Component, Interface};
 use std::sync::Arc;
 use UserRole::Admin;
 
@@ -54,9 +54,9 @@ fn make_container() -> Container {
 
 #[middleware(Request)]
 async fn access_control(
-    expected_role: Expect<UserRole>,
     user_role_extractor: Arc<dyn UserExtractor>,
     p: &RequestParts,
+    expected_role: Expect<UserRole>,
 ) -> Result<(), Error> {
     if expected_role == UserRole::None {
         return Ok(());
@@ -69,8 +69,7 @@ async fn access_control(
     Ok(())
 }
 
-#[guard([access_control(Admin)])]
-#[handler(Container)]
+#[handler(Container, [access_control(Admin)])]
 async fn hello_world(logger: Arc<dyn UserExtractor>) {
     //do something
 }
