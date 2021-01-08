@@ -97,7 +97,6 @@ impl ResponderError for Error {}
 
 #[derive(Eq, PartialEq, Ord, PartialOrd)]
 enum UserRole {
-    None,
     Regular,
     Admin,
 }
@@ -119,9 +118,6 @@ async fn access_control(
     p: &RequestParts,
     expected_role: Expect<UserRole>,
 ) -> Result<(), Error> {
-    if expected_role == UserRole::None {
-        return Ok(());
-    }
     let actual_role = user_role_extractor.extract(p).await?;
 
     if expected_role > actual_role {
