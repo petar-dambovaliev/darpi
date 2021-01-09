@@ -1,15 +1,12 @@
-use crate::app::ExprKeyValue;
 use proc_macro::TokenStream;
 use proc_macro2::Ident;
+use quote::ToTokens;
 use quote::{format_ident, quote};
-use syn::export::ToTokens;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
-use syn::token::Token;
 use syn::{
-    bracketed, parenthesized, parse::ParseStream, parse_macro_input, token, token::Bracket,
-    token::Comma, token::FatArrow, Error, ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path,
-    PathArguments, PathSegment, Type,
+    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
+    ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
 };
 
 /*

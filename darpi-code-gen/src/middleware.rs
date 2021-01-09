@@ -1,10 +1,9 @@
 use crate::handler::MODULE_PREFIX;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
+use quote::ToTokens;
 use quote::{format_ident, quote};
-use syn::export::ToTokens;
 use syn::parse::{Parse, ParseBuffer};
-use syn::parse_macro_input::parse;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
