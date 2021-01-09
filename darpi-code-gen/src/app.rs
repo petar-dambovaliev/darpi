@@ -3,10 +3,10 @@ use darpi_web::Route as DefRoute;
 use md5;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
+use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
-use syn::export::ToTokens;
 use syn::parse::Parse;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
