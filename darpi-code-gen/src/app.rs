@@ -8,6 +8,7 @@ use quote::{format_ident, quote};
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use syn::parse::Parse;
+use syn::token::Token;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
     token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprArray, ExprLit, ExprPath,
@@ -24,12 +25,21 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         handlers,
     } = get_fields(app_struct)?;
 
-    let address: std::net::SocketAddr = address
-        .value()
-        .parse()
-        .expect(&format!("invalid server address: `{}`", address.value()));
-
-    let address_value = format!("{}", address.to_string());
+    let address_value = match address {
+        Address::LitStr(ls) => {
+            let address: std::net::SocketAddr = ls
+                .value()
+                .parse()
+                .expect(&format!("invalid server address: `{}`", ls.value()));
+            let s = format!("{}", address.to_string());
+            let q = quote! {#s};
+            q.to_token_stream()
+        }
+        Address::Ident(i) => {
+            let q = quote! {&#i};
+            q.to_token_stream()
+        }
+    };
 
     if handlers.is_empty() {
         return Err(Error::new(Span::call_site(), "no handlers registered")
@@ -93,12 +103,12 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         }
 
         impl App {
-            pub fn new() -> Self {
+            pub fn new(address: &str) -> Self {
                 #(#body_assert;)*
                 #(#route_arg_assert;)*
-                let address: std::net::SocketAddr = #address_value
+                let address: std::net::SocketAddr = address
                     .parse()
-                    .expect(&format!("invalid server address: `{}`", #address_value));
+                    .expect(&format!("invalid server address: `{}`", address));
 
                 #module_let
                 Self {
@@ -161,7 +171,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         {
             #route_possibilities
             #app
-            App::new()
+            App::new(#address_value)
         }
     };
     Ok(tokens.into())
@@ -317,6 +327,7 @@ enum Expr {
     Module(ExprKeyValue),
     ExprLit(ExprLit),
     ExprPath(ExprPath),
+    Ident(Ident),
 }
 
 #[derive(Debug)]
@@ -378,8 +389,13 @@ impl syn::parse::Parse for FieldValue {
                 _ => return Err(Error::new(Span::call_site(), "invalid route")),
             }
         } else if member_ident == "address" {
-            let val: ExprLit = parse_variant(input)?;
-            Expr::ExprLit(val)
+            if Ident::peek(input.cursor()) {
+                let val: Ident = parse_variant(input)?;
+                Expr::Ident(val)
+            } else {
+                let val: ExprLit = parse_variant(input)?;
+                Expr::ExprLit(val)
+            }
         } else if member_ident == "method" {
             let val: ExprPath = parse_variant(input)?;
             Expr::ExprPath(val)
@@ -502,9 +518,14 @@ impl syn::parse::Parse for ExprHandler {
 }
 
 struct FieldResult {
-    address: LitStr,
+    address: Address,
     module_path: Option<ExprKeyValue>,
     handlers: Vec<ExprHandler>,
+}
+
+enum Address {
+    LitStr(LitStr),
+    Ident(Ident),
 }
 
 fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
@@ -554,7 +575,7 @@ fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
 
     let address = match address_field.expr {
         Expr::ExprLit(lit) => match lit.lit {
-            Lit::Str(str) => str,
+            Lit::Str(str) => Address::LitStr(str),
             _ => {
                 return Err(Error::new(
                     Span::call_site(),
@@ -564,6 +585,7 @@ fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
                 .into())
             }
         },
+        Expr::Ident(i) => Address::Ident(i),
         _ => {
             return Err(
                 Error::new(Span::call_site(), "server address should be a &str literal")
