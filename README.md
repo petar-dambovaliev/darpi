@@ -168,7 +168,8 @@ async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger
     // the `app` macro creates a server and allows the user to call
     // the method `run` and await on that future
      app!({
-        // the provided address is verified at compile time
+        // if the address is a string literal, it is verified at compile time
+        // if it is a string variable, obviously, it won't
          address: "127.0.0.1:3000",
          // via the container we inject our dependencies
          // in this case, MyLogger type
