@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-pub use darpi_code_gen::{app, guard, handler, middleware, path_type, query_type};
+pub use darpi_code_gen::{app, handler, middleware, path_type, query_type};
 pub use darpi_web::{
     logger, middleware, request, request::Path, request::Query, response, route, route::ReqRoute,
     route::Route, Json,

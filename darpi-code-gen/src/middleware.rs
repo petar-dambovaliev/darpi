@@ -1,16 +1,14 @@
 use crate::handler::MODULE_PREFIX;
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span};
+use proc_macro2::Ident;
 use quote::ToTokens;
 use quote::{format_ident, quote};
-use syn::parse::{Parse, ParseBuffer};
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, parse_str, token::Bracket, token::Colon2,
-    token::Comma, AngleBracketedGenericArguments, AttributeArgs, Error, ExprCall, FnArg,
-    GenericArgument, ItemFn, Lifetime, PatType, Path, PathArguments, PathSegment, ReturnType, Type,
-    TypePath,
+    bracketed, parse::ParseStream, parse_macro_input, parse_str, token::Colon2, token::Comma,
+    AttributeArgs, Error, ExprCall, FnArg, ItemFn, PatType, Path, PathArguments, PathSegment,
+    ReturnType, Type,
 };
 
 #[derive(Debug)]
@@ -26,28 +24,6 @@ impl syn::parse::Parse for Arguments {
 
         Ok(Arguments { middleware })
     }
-}
-
-pub(crate) fn make_guard(args: TokenStream, input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as Arguments);
-    let mut input = parse_macro_input!(input as ItemFn);
-
-    if input.attrs.is_empty() {
-        return Error::new_spanned(
-            input,
-            "guard should be directly above the handler attribute macro",
-        )
-        .to_compile_error()
-        .into();
-    }
-
-    let args = args.middleware;
-    input.attrs.iter_mut().for_each(|attr| {
-        let container: Ident = attr.parse_args().unwrap();
-        attr.tokens = quote! {(#container,[#args])};
-    });
-    //panic!("{}", input.to_token_stream().to_string());
-    input.to_token_stream().into()
 }
 
 fn get_return_type(r: &ReturnType) -> proc_macro2::TokenStream {
@@ -96,7 +72,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         .to_token_stream()
         .to_string();
 
-    let (middleware_type, arg_type) = match first_arg.as_str() {
+    let (_, arg_type) = match first_arg.as_str() {
         "Request" => ("RequestMiddleware", "RequestParts"),
         "Response" => ("ResponseMiddleware", "Response<Body>"),
         _ => {
@@ -123,47 +99,11 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         .to_string();
 
     let err_ident = format_ident!("{}", err_type);
-
-    let trait_name = format_ident!("{}", middleware_type);
-    let mut p = Punctuated::new();
-
-    let mut pp = Punctuated::new();
-    let mut ps: Punctuated<PathSegment, Colon2> = Punctuated::new();
-
-    ps.push(PathSegment {
-        ident: err_ident.clone(),
-        arguments: Default::default(),
-    });
-
-    pp.push(GenericArgument::Type(Type::Path(TypePath {
-        qself: None,
-        path: Path {
-            leading_colon: None,
-            segments: ps,
-        },
-    })));
-
-    p.push(PathSegment {
-        ident: trait_name,
-        arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-            colon2_token: None,
-            lt_token: Default::default(),
-            args: pp,
-            gt_token: Default::default(),
-        }),
-    });
-
-    let trait_name = Path {
-        leading_colon: None,
-        segments: p,
-    };
-
     let name = func.sig.ident.clone();
 
     let mut make_args = vec![];
     let mut give_args = vec![];
     let mut i = 0_u32;
-    let mut n_args = 0u8;
     let fn_call_module_where = quote! { where T: };
     let mut where_segments = vec![];
     let mut fn_call_module_args = vec![];
@@ -183,14 +123,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                     (id, ts)
                 }
                 HandlerArg::Module(i, ts) => {
-                    if let Type::Path(mut tp) = *tp.ty.clone() {
-                        let mut last = tp
-                            .path
-                            .segments
-                            .iter_mut()
-                            .last()
-                            .expect("cannot get segment");
-
+                    if let Type::Path(tp) = *tp.ty.clone() {
                         let last = tp.path.segments.last().expect("PathSegment");
                         let args = &last.arguments;
                         if let PathArguments::AngleBracketed(ab) = args {
@@ -298,7 +231,7 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
                 let args = ag.args.clone();
                 t_type = quote! {#args};
             }
-            let res = make_expect(&arg_name, i, t_type.clone());
+            let res = make_expect(&arg_name, i);
             return HandlerArg::Expect(arg_name, t_type, res);
         }
     }
@@ -309,11 +242,7 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
     HandlerArg::Module(arg_name, method_resolve)
 }
 
-fn make_expect(
-    arg_name: &Ident,
-    i: u32,
-    last: proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
+fn make_expect(arg_name: &Ident, i: u32) -> proc_macro2::TokenStream {
     let c = format_ident!("T{}", i);
     quote! {
         let #arg_name = #c;

@@ -1,10 +1,10 @@
 use logos;
 use logos::Logos;
-use proc_macro2::{Span, TokenStream, TokenTree};
-use quote::quote;
-use std::convert::TryFrom;
-use syn::parse::{Error as ParseError, ParseStream, Parser};
-use syn::{Error, ExprLit, Lit};
+//use proc_macro2::{Span, TokenStream, TokenTree};
+//use quote::quote;
+//use std::convert::TryFrom;
+//use syn::parse::{Error as ParseError, ParseStream, Parser};
+//use syn::{Error, ExprLit, Lit};
 
 #[derive(Logos, Debug, PartialEq)]
 pub enum FormatToken {
@@ -55,13 +55,13 @@ pub enum FormatToken {
 //     }
 // }
 
-pub fn make_format(expr_lit: ExprLit) -> Result<TokenStream, Error> {
-    // if let Lit::Str(str) = expr_lit.lit {
-    //     return str.parse_with(parse_format);
-    // }
-
-    Err(Error::new(
-        Span::call_site(),
-        "only string literal is supported",
-    ))
-}
+// pub fn make_format(expr_lit: ExprLit) -> Result<TokenStream, Error> {
+//     // if let Lit::Str(str) = expr_lit.lit {
+//     //     return str.parse_with(parse_format);
+//     // }
+//
+//     Err(Error::new(
+//         Span::call_site(),
+//         "only string literal is supported",
+//     ))
+// }

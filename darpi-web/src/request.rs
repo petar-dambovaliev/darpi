@@ -3,7 +3,6 @@ use hyper::{body::HttpBody, Body};
 use crate::response::ResponderError;
 use derive_more::{Display, From};
 use futures::Future;
-use http::request::Parts;
 use serde::{de, Deserialize, Deserializer};
 use serde_urlencoded;
 use std::{fmt, ops};

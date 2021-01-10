@@ -9,27 +9,6 @@ use syn::{
     ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
 };
 
-/*
-//todo add middleware
-// move middleware to the handler macro
-let mut request_middlewares = vec![];
-el.middleware.elems.iter().for_each(|m| {
-    if let syn::Expr::Path(ep) = m {
-        request_middlewares.push(quote! {
-         #ep::call_RequestMiddleware(r, inner_module)?;
-        });
-    }
-});
-
-#(#request_middlewares )*
-
- */
-
-pub(crate) fn make_container(mut args: TokenStream, input: TokenStream) -> TokenStream {
-    args.extend(input);
-    args
-}
-
 #[derive(Debug)]
 struct Arguments {
     module: Option<Ident>,
@@ -88,7 +67,7 @@ fn expand_middlewares_impl(
             quote! {Expect(#arg)}
         }).collect();
 
-        let (def_c, give_c) = container.as_ref().map_or(Default::default(), |c| (quote!{c: std::sync::Arc<#container>,}, quote!{c}));
+        let (def_c, give_c) = container.as_ref().map_or(Default::default(), |c| (quote!{c: std::sync::Arc<#c>,}, quote!{c}));
 
         let q = quote! {
             impl #name {

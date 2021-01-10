@@ -11,8 +11,8 @@ use syn::parse::Parse;
 use syn::token::Token;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
-    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprArray, ExprLit, ExprPath,
-    Lit, LitStr, Member,
+    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprLit, ExprPath, Lit,
+    LitStr, Member,
 };
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
