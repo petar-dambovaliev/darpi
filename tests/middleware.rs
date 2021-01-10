@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use darpi::{
-    middleware::Expect, response::ResponderError, Json, Method, Path, Query, RequestParts,
+    middleware::Expect, response::ResponderError, Body, Json, Method, Path, Query, RequestParts,
+    Response,
 };
 use darpi_code_gen::{app, handler, middleware, path_type, query_type};
 use derive_more::{Display, From};
@@ -128,10 +129,22 @@ async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger
     response
 }
 
+// #[middleware(Response)]
+// async fn log_response(r: &Response<Body>) -> Result<(), Error> {
+//     println!("{:#?}", r);
+//     Ok(())
+// }
+
+#[handler]
+async fn do_something2() -> String {
+    "response".to_owned()
+}
+
 #[tokio::test]
-async fn main() -> Result<(), darpi::Error> {
+async fn main() {
+    let address = format!("127.0.0.1:{}", 3000);
     app!({
-        address: "127.0.0.1:3000",
+        address: address,
         module: make_container => Container,
         bind: [
             {
@@ -149,8 +162,13 @@ async fn main() -> Result<(), darpi::Error> {
                 // Json<Name> as an argument
                 handler: do_something
             },
+            {
+                route: "/hello_world/bla",
+                method: Method::GET,
+                // the POST method allows this handler to have
+                // Json<Name> as an argument
+                handler: do_something2
+            },
         ],
-    })
-    .run()
-    .await
+    });
 }

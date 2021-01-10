@@ -3,12 +3,12 @@ use proc_macro::TokenStream;
 use proc_macro2::Ident;
 use quote::ToTokens;
 use quote::{format_ident, quote};
-use syn::parse_quote::ParseQuote;
+use syn::parse_quote::{parse, ParseQuote};
 use syn::punctuated::Punctuated;
 use syn::{
     bracketed, parse::ParseStream, parse_macro_input, parse_str, token::Colon2, token::Comma,
-    AttributeArgs, Error, ExprCall, FnArg, ItemFn, PatType, Path, PathArguments, PathSegment,
-    ReturnType, Type,
+    AngleBracketedGenericArguments, AttributeArgs, Error, ExprCall, FnArg, ItemFn, PatType, Path,
+    PathArguments, PathSegment, ReturnType, Type,
 };
 
 #[derive(Debug)]
@@ -72,9 +72,13 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         .to_token_stream()
         .to_string();
 
-    let (_, arg_type) = match first_arg.as_str() {
-        "Request" => ("RequestMiddleware", "RequestParts"),
-        "Response" => ("ResponseMiddleware", "Response<Body>"),
+    let (arg_type, gen_args) = match first_arg.as_str() {
+        "Request" => ("RequestParts", PathArguments::default()),
+        "Response" => {
+            let q = quote! {<Body>};
+            let args: AngleBracketedGenericArguments = parse(q);
+            ("Response", PathArguments::AngleBracketed(args))
+        }
         _ => {
             return Error::new_spanned(
                 func,
@@ -107,13 +111,10 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let fn_call_module_where = quote! { where T: };
     let mut where_segments = vec![];
     let mut fn_call_module_args = vec![];
-    //todo create default T when container is not needed
     let module_ident = format_ident!("{}", MODULE_PREFIX);
 
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
-            //todo change the return type to enum
-            //todo add nopath trait to check from handler if path arg is not used
             let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
                 HandlerArg::Permanent(i, ts) => (i, ts),
                 HandlerArg::Expect(id, ttype, ts) => {
@@ -154,7 +155,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let mut p: Punctuated<PathSegment, Colon2> = Punctuated::new();
     p.push(PathSegment {
         ident: format_ident!("{}", arg_type),
-        arguments: Default::default(),
+        arguments: gen_args,
     });
     let arg_type_path = Path {
         leading_colon: None,
@@ -216,7 +217,8 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
     if let Type::Reference(rt) = *ttype.clone() {
         if let Type::Path(tp) = *rt.elem.clone() {
             let last = tp.path.segments.last().unwrap();
-            if last.ident == "RequestParts" {
+
+            if last.ident == "RequestParts" || last.ident == "Response" {
                 let res = quote! {let #arg_name = p;};
                 return HandlerArg::Permanent(arg_name, res);
             }

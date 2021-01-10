@@ -96,6 +96,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let func_name = &func.sig.ident;
     let mut module = Default::default();
+    let mut dummy_t = quote! {,T};
     let module_ident = format_ident!("{}", MODULE_PREFIX);
     let mut middlewares_impl = Default::default();
     let mut middleware_req = vec![];
@@ -126,6 +127,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
         if let Some(m) = arguments.module {
             module = quote! {#module_ident: std::sync::Arc<#m>};
+            dummy_t = Default::default();
         }
     }
 
@@ -156,8 +158,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     func.sig.inputs.iter().for_each(|arg| {
         if let FnArg::Typed(tp) = arg {
-            //todo change the return type to enum
-            //todo add nopath trait to check from handler if path arg is not used
             let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
                 HandlerArgs::Query(i, ts) => (i, ts),
                 HandlerArgs::Json(i, ts) => (i, ts),
@@ -167,8 +167,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     (i, ts)
                 }
                 HandlerArgs::Option(i, ts) => (i, ts),
-                //todo check if handlers has module args and validate user passed in a container module
-                // for handler and middleware
                 HandlerArgs::Module(i, ts) => (i, ts),
             };
 
@@ -190,6 +188,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             body: darpi::Body,
             (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
+               #[allow(unused_imports)]
                use shaku::HasComponent;
 
                #(#make_args )*
@@ -199,18 +198,22 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
     };
 
-    let module_ident = if !module.is_empty() {
-        module_ident.to_token_stream()
+    if !dummy_t.is_empty() {
+        module = quote! {_: std::sync::Arc<T>};
+    }
+
+    let module_ident = if !module.is_empty() && dummy_t.is_empty() {
+        quote! {#module_ident.clone()}
     } else {
         Default::default()
     };
 
     let fn_expand_call = quote! {
         #[inline]
-        async fn expand_call<'a>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+        async fn expand_call<'a#dummy_t>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
             let (parts, body) = r.into_parts();
             #(#middleware_req )*
-            let rb = Self::call(parts, body, (req_route, req_args), #module_ident.clone()).await.unwrap();
+            let rb = Self::call(parts, body, (req_route, req_args), #module_ident).await.unwrap();
             #(#middleware_res )*
             Ok(rb)
         }
