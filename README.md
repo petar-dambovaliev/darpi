@@ -22,9 +22,9 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
 ```rust
 use async_trait::async_trait;
 use darpi::{
-    middleware::Expect, response::ResponderError, Json, Method, Path, Query, RequestParts,
+    app, handler, middleware, middleware::Expect, path_type, query_type, response::ResponderError,
+    Json, Method, Path, Query, RequestParts,
 };
-use darpi_code_gen::{app, handler, middleware, path_type, query_type};
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
