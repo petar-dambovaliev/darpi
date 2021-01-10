@@ -149,9 +149,6 @@ async fn main() {
         bind: [
             {
                 route: "/hello_world/{name}",
-                //todo if user does not specify a method
-                // let the user handle all methods on the same route
-                // with a single handler
                 method: Method::GET,
                 handler: hello_world,
             },

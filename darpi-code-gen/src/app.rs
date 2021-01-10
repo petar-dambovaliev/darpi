@@ -132,7 +132,6 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
-                                //todo fix this allocation
                                 let route = r.uri().path().to_string();
                                 let method = r.method().clone();
 
@@ -267,8 +266,6 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
         });
     });
 
-    //todo this is sorting routes but not routes match
-    // check if this is a bug
     routes.sort_by(|left, right| {
         let left_matches: Vec<usize> = left.1.match_indices('{').map(|t| t.0).collect();
 

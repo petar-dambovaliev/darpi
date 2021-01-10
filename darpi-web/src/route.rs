@@ -136,6 +136,7 @@ fn route_to_string() {
     assert_eq!(def_route, req_route);
     let args = req_route.extract_args(&def_route).unwrap();
     panic!("{:#?}", args);
+
     // asd("/user/{name}");
     // asd("/user/article");
     // let mut v = vec![
