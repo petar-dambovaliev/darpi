@@ -32,58 +32,34 @@ use std::sync::Arc;
 use UserRole::Admin;
  
 ///////////// setup dependencies with shaku ///////////
- trait Logger: Interface {
-     fn log(&self, arg: &dyn std::fmt::Debug);
- }
- 
- #[derive(Component)]
- #[shaku(interface = Logger)]
- struct MyLogger;
- impl Logger for MyLogger {
-     fn log(&self, arg: &dyn std::fmt::Debug) {
-         println!("{:#?}", arg)
-     }
- }
-
-trait DateLogger: Interface {
-    fn log_date(&self);
-}
-
 #[derive(Component)]
-#[shaku(interface = DateLogger)]
-struct DateLoggerImpl {
-    #[shaku(inject)]
-    logger: Arc<dyn Logger>,
-    today: String,
-    year: usize,
+#[shaku(interface = UserExtractor)]
+struct UserExtractorImpl;
+
+#[async_trait]
+impl UserExtractor for UserExtractorImpl {
+    async fn extract(&self, p: &RequestParts) -> Result<UserRole, Error> {
+        Ok(UserRole::Admin)
+    }
 }
 
-impl DateLogger for DateLoggerImpl {
-    fn log_date(&self) {
-        self.logger
-            .log(&format!("Today is {}, {}", self.today, self.year));
+#[async_trait]
+trait UserExtractor: Interface {
+    async fn extract(&self, p: &RequestParts) -> Result<UserRole, Error>;
+}
+
+module! {
+    Container {
+        components = [UserExtractorImpl, MyLogger],
+        providers = [],
     }
 }
 
 fn make_container() -> Container {
-    let module = Container::builder()
-        .with_component_parameters::<DateLoggerImpl>(DateLoggerImplParameters {
-            today: "Jan 26".to_string(),
-            year: 2020,
-        })
-        .build();
-    module
+    Container::builder().build()
 }
 
- 
- module! {
-     Container {
-         components = [MyLogger, DateLoggerImpl],
-         providers = [],
-     }
- }
-//////////////////////////
-
+////////////////////////
 
 #[derive(Debug, Display, From)]
 enum Error {
@@ -100,7 +76,6 @@ enum UserRole {
     Regular,
     Admin,
 }
-
 
 // there are 2 types of middleware `Request` and `Response`
 // the constant argument that needs to be present is &RequestParts
@@ -126,14 +101,13 @@ async fn access_control(
     Ok(())
 }
 
- 
- #[path_type]
- #[query_type]
- #[derive(Deserialize, Serialize, Debug)]
- pub struct Name {
-     name: String,
- }
- 
+#[path_type]
+#[query_type]
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Name {
+    name: String,
+}
+
 // Path<Name> is extracted from the registered path "/hello_world/{name}"
 // and it is always mandatory. A request without "{name}" will result
 // in the request path not matching the handler. It will either match another
@@ -143,23 +117,21 @@ async fn access_control(
 // remove the Option type. If there is a Query<T> in the handler and
 // an incoming request url does not contain the query parameters, it will
 // result in an error response
-#[handler(Container)]
-async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logger>) -> String {
+#[handler]
+async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
     let other = q.map_or("nobody".to_owned(), |n| n.0.name);
     let response = format!("{} sends hello to {}", p.name, other);
-    logger.log(&response);
     response
 }
- 
+
 // the handler macro has 2 optional arguments
 // the shaku container type and a collection of middlewares
 // the enum variant `Admin` is coresponding to the middlewre `access_control`'s Expect<UserRole>
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
 #[handler(Container, [access_control(Admin)])]
-async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger>) -> String {
+async fn do_something(p: Path<Name>, payload: Json<Name>) -> String {
     let response = format!("{} sends hello to {}", p.name, payload.name);
-    logger.log(&response);
     response
 }
  

@@ -11,19 +11,6 @@ use std::sync::Arc;
 use UserRole::Admin;
 
 ///////////// setup dependencies with shaku ///////////
-trait Logger: Interface {
-    fn log(&self, arg: &dyn std::fmt::Debug);
-}
-
-#[derive(Component)]
-#[shaku(interface = Logger)]
-struct MyLogger;
-impl Logger for MyLogger {
-    fn log(&self, arg: &dyn std::fmt::Debug) {
-        println!("{:#?}", arg)
-    }
-}
-
 #[derive(Component)]
 #[shaku(interface = UserExtractor)]
 struct UserExtractorImpl;
@@ -109,11 +96,10 @@ pub struct Name {
 // remove the Option type. If there is a Query<T> in the handler and
 // an incoming request url does not contain the query parameters, it will
 // result in an error response
-#[handler(Container)]
-async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logger>) -> String {
+#[handler]
+async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
     let other = q.map_or("nobody".to_owned(), |n| n.0.name);
     let response = format!("{} sends hello to {}", p.name, other);
-    logger.log(&response);
     response
 }
 
@@ -123,21 +109,9 @@ async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logg
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
 #[handler(Container, [access_control(Admin)])]
-async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger>) -> String {
+async fn do_something(p: Path<Name>, payload: Json<Name>) -> String {
     let response = format!("{} sends hello to {}", p.name, payload.name);
-    logger.log(&response);
     response
-}
-
-// #[middleware(Response)]
-// async fn log_response(r: &Response<Body>) -> Result<(), Error> {
-//     println!("{:#?}", r);
-//     Ok(())
-// }
-
-#[handler]
-async fn do_something2() -> String {
-    "response".to_owned()
 }
 
 #[tokio::test]
@@ -158,13 +132,6 @@ async fn main() {
                 // the POST method allows this handler to have
                 // Json<Name> as an argument
                 handler: do_something
-            },
-            {
-                route: "/hello_world/bla",
-                method: Method::GET,
-                // the POST method allows this handler to have
-                // Json<Name> as an argument
-                handler: do_something2
             },
         ],
     });
