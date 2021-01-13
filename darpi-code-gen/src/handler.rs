@@ -64,21 +64,25 @@ fn expand_middlewares_impl(
         let handler_name_request = format_ident!("{}_request", handler_name);
         let handler_name_response = format_ident!("{}_response", handler_name);
         let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
-            quote! {Expect(#arg)}
+            quote! {darpi::Expect(#arg)}
         }).collect();
 
-        let (def_c, give_c) = container.as_ref().map_or(Default::default(), |c| (quote!{c: std::sync::Arc<#c>,}, quote!{c}));
+        let (where_clause, dummy_gen, def_c, give_c) = container.as_ref().map_or((quote!{
+        where
+        T: 'static + Sync + Send,
+        }, quote!{<T>}, quote!{c: std::sync::Arc<T>,}, quote!{c}), |c| (Default::default(), Default::default(), quote!{c: std::sync::Arc<#c>,}, quote!{c}));
 
         let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
         let q = quote! {
             #[async_trait::async_trait]
             trait #dummy_trait {
-                async fn #handler_name_request(#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>>;
-                async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>>;
+                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
+                async fn #handler_name_response #dummy_gen (#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
             }
             #[async_trait::async_trait]
             impl #dummy_trait for #name {
-                async fn #handler_name_request(#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>>{
+                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>> #where_clause{
+                    use darpi::response::ResponderError;
                     let concrete = #name::call_Request(p, #(#args ,)*  #give_c, b).await;
 
                     match concrete {
@@ -86,7 +90,8 @@ fn expand_middlewares_impl(
                         Err(e) => Err(e.respond_err())
                     }
                 }
-                async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>>{
+                async fn #handler_name_response #dummy_gen (#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause {
+                    use darpi::response::ResponderError;
                     let concrete = #name::call_Response(r, #(#args ,)* #give_c).await;
                     match concrete {
                         Ok(()) => Ok(()),
@@ -214,8 +219,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
     };
 
+    let mut dummy_where = Default::default();
     if !dummy_t.is_empty() {
-        module = quote! {_: std::sync::Arc<T>};
+        module = quote! {#module_ident: std::sync::Arc<T>};
+        dummy_where = quote! {
+        where
+        T: 'static + Sync + Send,
+        };
     }
 
     let module_ident = if !module.is_empty() && dummy_t.is_empty() {
@@ -226,7 +236,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let fn_expand_call = quote! {
         #[inline]
-        async fn expand_call<'a#dummy_t>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+        async fn expand_call<'a#dummy_t>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
             let (parts, body) = r.into_parts();
             #(#middleware_req )*
             let rb = Self::call(parts, body, (req_route, req_args), #module_ident).await.unwrap();

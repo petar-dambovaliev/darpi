@@ -1,4 +1,6 @@
 use darpi::{app, handler, path_type, query_type, Error, Json, Method, Path, Query};
+use darpi_middleware::body_size_limit;
+use darpi_web::request::ExtractBody;
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
 use std::sync::Arc;
@@ -77,10 +79,17 @@ async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logg
     response
 }
 
+//todo show proper message when the argument cannot be recognized
+// currently it defaults to the container
+
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
-#[handler(Container)]
-async fn do_something(p: Path<Name>, payload: Json<Name>, logger: Arc<dyn Logger>) -> String {
+#[handler(Container, [body_size_limit(64)])]
+async fn do_something(
+    p: Path<Name>,
+    payload: ExtractBody<Json<Name>>,
+    logger: Arc<dyn Logger>,
+) -> String {
     let response = format!("{} sends hello to {}", p.name, payload.name);
     logger.log(&response);
     response

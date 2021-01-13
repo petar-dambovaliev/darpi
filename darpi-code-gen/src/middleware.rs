@@ -124,7 +124,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                 HandlerArg::Permanent(i, ts) => (i, ts),
                 HandlerArg::Expect(id, ttype, ts) => {
                     let cg = format_ident!("T{}", i);
-                    fn_call_module_args.push(quote! {#cg: Expect<#ttype>});
+                    fn_call_module_args.push(quote! {#cg: darpi::Expect<#ttype>});
 
                     (id, ts)
                 }
