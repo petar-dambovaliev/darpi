@@ -1,20 +1,12 @@
-use crate::response::ResponderError;
-use crate::{Body, Response};
-use async_trait::async_trait;
-use http::request::Parts;
 use std::cmp::Ordering;
 
-#[async_trait]
-pub trait RequestMiddleware<E: ResponderError> {
-    async fn call(&self, p: &Parts) -> Result<(), E>;
-}
-
-#[async_trait]
-pub trait ResponseMiddleware<E: ResponderError> {
-    async fn call(&self, r: &Response<Body>) -> Result<(), E>;
-}
-
 pub struct Expect<T>(pub T);
+
+impl<T> Expect<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
 
 impl<T> PartialEq<T> for Expect<T>
 where

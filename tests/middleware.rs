@@ -1,9 +1,8 @@
 use async_trait::async_trait;
 use darpi::{
-    middleware::Expect, response::ResponderError, Body, Json, Method, Path, Query, RequestParts,
-    Response,
+    app, handler, middleware, middleware::Expect, path_type, query_type, request::ExtractBody,
+    response::ResponderError, Body, Json, Method, Path, Query, RequestParts,
 };
-use darpi_code_gen::{app, handler, middleware, path_type, query_type};
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
@@ -29,7 +28,7 @@ trait UserExtractor: Interface {
 
 module! {
     Container {
-        components = [UserExtractorImpl, MyLogger],
+        components = [UserExtractorImpl],
         providers = [],
     }
 }
@@ -99,19 +98,17 @@ pub struct Name {
 #[handler]
 async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
     let other = q.map_or("nobody".to_owned(), |n| n.0.name);
-    let response = format!("{} sends hello to {}", p.name, other);
-    response
+    format!("{} sends hello to {}", p.name, other)
 }
 
 // the handler macro has 2 optional arguments
 // the shaku container type and a collection of middlewares
-// the enum variant `Admin` is coresponding to the middlewre `access_control`'s Expect<UserRole>
+// the enum variant `Admin` is corresponding to the middlewre `access_control`'s Expect<UserRole>
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
 #[handler(Container, [access_control(Admin)])]
-async fn do_something(p: Path<Name>, payload: Json<Name>) -> String {
-    let response = format!("{} sends hello to {}", p.name, payload.name);
-    response
+async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
+    format!("{} sends hello to {}", p.name, payload.name)
 }
 
 #[tokio::test]

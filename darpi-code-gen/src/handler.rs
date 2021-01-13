@@ -7,6 +7,7 @@ use syn::punctuated::Punctuated;
 use syn::{
     bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
     ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
+    TypeParamBound,
 };
 
 #[derive(Debug)]
@@ -71,8 +72,8 @@ fn expand_middlewares_impl(
 
         let q = quote! {
             impl #name {
-                async fn #handler_name_request(#def_c p: &darpi::RequestParts) -> Result<(), impl darpi::response::ResponderError> {
-                    #name::call_Request(p, #(#args ,)*  #give_c).await
+                async fn #handler_name_request(#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), impl darpi::response::ResponderError> {
+                    #name::call_Request(p, #(#args ,)*  #give_c, b).await
                 }
                 async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), impl darpi::response::ResponderError> {
                     #name::call_Response(r, #(#args ,)* #give_c).await
@@ -113,7 +114,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                 let name = &e.func;
 
                 middleware_req.push(quote! {
-                    if let Err(e) = #name::#h_req(#module_ident.clone(), &parts).await {
+                    if let Err(e) = #name::#h_req(#module_ident.clone(), &parts, &body).await {
                         return Ok(e.respond_err());
                     }
                 });
@@ -328,12 +329,8 @@ fn make_json_body(
         use darpi::request::FromRequestBody;
         use darpi::response::ResponderError;
 
-        if let Err(e) = Json::#inner::assert_content_size(&body) {
-            return Ok(e.respond_err());
-        }
-
-        let #arg_name: #path = match Json::#inner::extract(body).await {
-            Ok(q) => q,
+        let #arg_name: #path = match #inner::extract(body).await {
+            Ok(q) => ExtractBody(q),
             Err(e) => return Ok(e.respond_err())
         };
     };
@@ -355,15 +352,17 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArgs 
 
     if let Type::Path(tp) = *ttype.clone() {
         let last = tp.path.segments.last().unwrap();
+        //todo return err if there are more than 1 query args
         if last.ident == "Query" {
             let res = make_query(&arg_name, last);
             return HandlerArgs::Query(arg_name, res);
         }
-        if last.ident == "Json" {
+        //todo return err if there are more than 1 json args
+        if last.ident == "ExtractBody" {
             let res = make_json_body(&arg_name, &tp.path, &last.arguments);
             return HandlerArgs::Json(arg_name, res);
         }
-
+        //todo return err if there are more than 1 path args
         if last.ident == "Path" {
             let res = make_path_args(&arg_name, &last);
             return HandlerArgs::Path(arg_name, res);

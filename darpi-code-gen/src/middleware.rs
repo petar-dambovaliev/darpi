@@ -72,8 +72,13 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         .to_token_stream()
         .to_string();
 
+    let mut body: Option<Path> = None;
+
     let (arg_type, gen_args) = match first_arg.as_str() {
-        "Request" => ("RequestParts", PathArguments::default()),
+        "Request" => {
+            body = Some(parse_str("Body").unwrap());
+            ("RequestParts", PathArguments::default())
+        }
         "Response" => {
             let q = quote! {<Body>};
             let args: AngleBracketedGenericArguments = parse(q);
@@ -154,6 +159,10 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
 
     let mut p: Punctuated<PathSegment, Colon2> = Punctuated::new();
     p.push(PathSegment {
+        ident: format_ident!("{}", "darpi"),
+        arguments: Default::default(),
+    });
+    p.push(PathSegment {
         ident: format_ident!("{}", arg_type),
         arguments: gen_args,
     });
@@ -183,13 +192,17 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
 
     let p: Path = parse_str(p).unwrap();
 
+    let body = body.map_or(Default::default(), |b| {
+        quote! {,b: &#b}
+    });
+
     let tokens = quote! {
         #[allow(non_camel_case_types, missing_docs)]
         pub struct #name;
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T>) -> Result<(), #err_ident> #fn_call_module_where {
+            async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T> #body) -> Result<(), #err_ident> #fn_call_module_where {
                 #(#make_args )*
                 Self::#name(#(#give_args ,)*).await?;
                 Ok(())
@@ -220,6 +233,10 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
 
             if last.ident == "RequestParts" || last.ident == "Response" {
                 let res = quote! {let #arg_name = p;};
+                return HandlerArg::Permanent(arg_name, res);
+            }
+            if last.ident == "Body" {
+                let res = quote! {let #arg_name = b;};
                 return HandlerArg::Permanent(arg_name, res);
             }
         }

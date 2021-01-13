@@ -22,8 +22,8 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
 ```rust
 use async_trait::async_trait;
 use darpi::{
-    app, handler, middleware, middleware::Expect, path_type, query_type, response::ResponderError,
-    Json, Method, Path, Query, RequestParts,
+    app, handler, middleware, middleware::Expect, path_type, query_type, request::ExtractBody,
+    response::ResponderError, Body, Json, Method, Path, Query, RequestParts,
 };
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
@@ -120,19 +120,19 @@ pub struct Name {
 #[handler]
 async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
     let other = q.map_or("nobody".to_owned(), |n| n.0.name);
-    let response = format!("{} sends hello to {}", p.name, other);
-    response
+    format!("{} sends hello to {}", p.name, other)
 }
 
 // the handler macro has 2 optional arguments
 // the shaku container type and a collection of middlewares
-// the enum variant `Admin` is coresponding to the middlewre `access_control`'s Expect<UserRole>
-// Json<Name> is extracted from the request body
+// the enum variant `Admin` is corresponding to the middlewre `access_control`'s Expect<UserRole>
+// ExtractBody<T<Name>> is extracted from the request body
+// where T is the format and it has to implement the trait FromRequestBody
+// ExtractBody<Json<Name>> is supported out of the box
 // failure to do so will result in an error response
 #[handler(Container, [access_control(Admin)])]
-async fn do_something(p: Path<Name>, payload: Json<Name>) -> String {
-    let response = format!("{} sends hello to {}", p.name, payload.name);
-    response
+async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
+    format!("{} sends hello to {}", p.name, payload.name)
 }
  
  #[tokio::main]

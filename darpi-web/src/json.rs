@@ -1,9 +1,8 @@
 use crate::request::FromRequestBody;
 use crate::response::{Responder, ResponderError};
 use crate::Response;
+use async_trait::async_trait;
 use derive_more::Display;
-use futures::future::BoxFuture;
-use futures::FutureExt;
 use http::header;
 use hyper::Body;
 use serde::de::DeserializeOwned;
@@ -25,6 +24,16 @@ impl<T> Json<T> {
         let full_body = hyper::body::to_bytes(b).await?;
         let ser: T = serde_json::from_slice(&full_body)?;
         Ok(Json(ser))
+    }
+}
+
+#[async_trait]
+impl<T> FromRequestBody<Json<T>, JsonErr> for Json<T>
+where
+    T: DeserializeOwned + 'static,
+{
+    async fn extract(b: Body) -> Result<Json<T>, JsonErr> {
+        Self::deserialize_future(b).await
     }
 }
 
@@ -108,16 +117,4 @@ impl From<hyper::Error> for JsonErr {
 }
 
 impl ResponderError for JsonErr {}
-
-impl<T: 'static> FromRequestBody<Self, JsonErr> for Json<T>
-where
-    T: DeserializeOwned,
-{
-    type Future = BoxFuture<'static, Result<Self, JsonErr>>;
-
-    fn extract(b: Body) -> Self::Future {
-        Self::deserialize_future(b).boxed()
-    }
-}
-
 impl ResponderError for serde_json::Error {}

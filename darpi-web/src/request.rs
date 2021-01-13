@@ -1,32 +1,47 @@
-use hyper::{body::HttpBody, Body};
-
 use crate::response::ResponderError;
+use async_trait::async_trait;
 use derive_more::{Display, From};
-use futures::Future;
+use hyper::{body::HttpBody, Body};
 use serde::{de, Deserialize, Deserializer};
 use serde_urlencoded;
 use std::{fmt, ops};
 
-pub trait FromRequestBody<T, E>
+pub struct ExtractBody<T>(pub T);
+
+impl<T> ExtractBody<T> {
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
+
+impl<T> ops::Deref for ExtractBody<T> {
+    type Target = T;
+
+    fn deref(&self) -> &T {
+        &self.0
+    }
+}
+
+impl<T> ops::DerefMut for ExtractBody<T> {
+    fn deref_mut(&mut self) -> &mut T {
+        &mut self.0
+    }
+}
+
+#[async_trait]
+impl<T, E> FromRequestBody<T, E> for ExtractBody<T>
 where
-    E: ResponderError,
+    T: FromRequestBody<T, E> + 'static,
+    E: ResponderError + 'static,
 {
-    type Future: Future<Output = Result<T, E>>;
-
-    #[inline]
-    fn content_size() -> u64 {
-        4096
+    async fn extract(b: Body) -> Result<T, E> {
+        T::extract(b).await
     }
+}
 
-    fn assert_content_size(b: &Body) -> Result<(), PayloadError> {
-        if let Some(limit) = b.size_hint().upper() {
-            if limit > Self::content_size() {
-                return Err(PayloadError::Size(Self::content_size(), limit));
-            }
-        }
-        Ok(())
-    }
-    fn extract(b: Body) -> Self::Future;
+#[async_trait]
+pub trait FromRequestBody<T, E> {
+    async fn extract(b: Body) -> Result<T, E>;
 }
 
 #[derive(Debug, Display, From)]

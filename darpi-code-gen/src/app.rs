@@ -1,10 +1,10 @@
 use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
-use darpi_web::Route as DefRoute;
 use md5;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
+use route::Route as DefRoute;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use syn::parse::Parse;
@@ -66,7 +66,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         }
 
         impl RoutePossibilities {
-            pub fn get_route<'a>(&self, route: &'a str, method: &darpi::Method) -> Option<(darpi::route::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>)> {
+            pub fn get_route<'a>(&self, route: &'a str, method: &darpi::Method) -> Option<(darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>)> {
                 return match self {
                     #(#is ,)*
                 };
