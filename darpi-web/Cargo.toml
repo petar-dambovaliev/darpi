@@ -20,3 +20,5 @@ log = "0.4"
 futures-util = "0.3.8"
 async-trait = "0.1.42"
 darpi-code-gen = { path = "../darpi-code-gen" }
+serde_yaml = "0.8"
+serde-xml-rs = "0.4.1"
