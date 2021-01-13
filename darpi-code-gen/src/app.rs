@@ -1,10 +1,10 @@
 use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
+use darpi_route::Route as DefRoute;
 use md5;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
-use route::Route as DefRoute;
 use std::cmp::Ordering;
 use std::convert::TryFrom;
 use syn::parse::Parse;
