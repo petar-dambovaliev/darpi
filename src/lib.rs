@@ -6,7 +6,7 @@ pub use darpi_web::{
     xml::Xml, yaml::Yaml, Json,
 };
 
-pub use route::{ReqRoute, Route};
+pub use darpi_route::{ReqRoute, Route};
 
 pub use futures;
 pub use http::{header, request::Parts as RequestParts, Method, StatusCode};
