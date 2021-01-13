@@ -7,7 +7,6 @@ use syn::punctuated::Punctuated;
 use syn::{
     bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
     ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
-    TypeParamBound,
 };
 
 #[derive(Debug)]

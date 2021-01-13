@@ -13,10 +13,6 @@ use std::{fmt, ops};
 pub struct Yaml<T>(pub T);
 
 impl<T> Yaml<T> {
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-
     async fn deserialize_future(b: Body) -> Result<Yaml<T>, YamlErr>
     where
         T: DeserializeOwned,

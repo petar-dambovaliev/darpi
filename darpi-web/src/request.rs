@@ -1,7 +1,7 @@
 use crate::response::ResponderError;
 use async_trait::async_trait;
 use derive_more::{Display, From};
-use hyper::{body::HttpBody, Body};
+use hyper::Body;
 use serde::{de, Deserialize, Deserializer};
 use serde_urlencoded;
 use std::{fmt, ops};
