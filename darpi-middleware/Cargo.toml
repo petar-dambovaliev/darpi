@@ -10,6 +10,6 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 darpi-web = {version = "0.1.0" }
-darpi-code-gen = { version = "0.1.0" }
+darpi-code-gen = { path = "../darpi-code-gen" }
 hyper = "0.13.9"
 darpi = { version = "0.1.0" }
