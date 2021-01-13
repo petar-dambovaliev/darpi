@@ -45,13 +45,13 @@ pub struct Name {
 
 // the handler macro has 2 optional arguments
 // the shaku container type and a collection of middlewares
-// the enum variant `Admin` is corresponding to the middlewre `access_control`'s Expect<UserRole>
-// Json<Name> is extracted from the request body
-// failure to do so will result in an error response
 // here we pass in the string "John Doe" to the `hello_middleware`
 // it is being passed on matching the `handler: Expect<&str>` argument
 // then we use the builtin body_size_limit middleware and we limit the body size
 // to 64 bytes
+// Path<Name> is extracted from the url path
+// Json<Name> is extracted from the request body
+// failure to do so will result in an error response
 #[handler([hello_middleware("John Doe"), body_size_limit(64)])]
 async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
