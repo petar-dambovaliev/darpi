@@ -4,8 +4,8 @@ pub mod logger;
 pub mod middleware;
 pub mod request;
 pub mod response;
-mod xml;
-mod yaml;
+pub mod xml;
+pub mod yaml;
 
 pub use hyper::{body::HttpBody, Body, Request, Response, StatusCode};
 pub use json::Json;

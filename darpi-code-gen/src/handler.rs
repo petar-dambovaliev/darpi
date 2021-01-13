@@ -328,6 +328,11 @@ fn make_json_body(
         use darpi::request::FromRequestBody;
         use darpi::response::ResponderError;
 
+        match #inner::assert_content_type(parts.headers.get("content-type")).await {
+            Ok(()) => {}
+            Err(e) => return Ok(e.respond_err()),
+        }
+
         let #arg_name: #path = match #inner::extract(body).await {
             Ok(q) => ExtractBody(q),
             Err(e) => return Ok(e.respond_err())

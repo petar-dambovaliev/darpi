@@ -128,8 +128,8 @@ async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
 // the enum variant `Admin` is corresponding to the middlewre `access_control`'s Expect<UserRole>
 // ExtractBody<T<Name>> is extracted from the request body
 // where T is the format and it has to implement the trait FromRequestBody
-// ExtractBody<Json<Name>> is supported out of the box
-// failure to do so will result in an error response
+// Json, Yaml and Xml are supported out of the box
+// failure to extract will result in an error response
 #[handler(Container, [access_control(Admin)])]
 async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)

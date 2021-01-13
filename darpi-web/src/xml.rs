@@ -4,7 +4,7 @@ use crate::Response;
 use async_trait::async_trait;
 use bytes::buf::BufExt;
 use derive_more::Display;
-use http::header;
+use http::{header, HeaderValue};
 use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -29,6 +29,14 @@ impl<T> FromRequestBody<Xml<T>, XmlErr> for Xml<T>
 where
     T: DeserializeOwned + 'static,
 {
+    async fn assert_content_type(content_type: Option<&HeaderValue>) -> Result<(), XmlErr> {
+        if let Some(hv) = content_type {
+            if hv != "application/xml" {
+                return Err(XmlErr::InvalidContentType);
+            }
+        }
+        Ok(())
+    }
     async fn extract(b: Body) -> Result<Xml<T>, XmlErr> {
         Self::deserialize_future(b).await
     }
@@ -86,7 +94,7 @@ where
     fn respond(self) -> Response<Body> {
         match serde_xml_rs::to_string(&self.0) {
             Ok(body) => Response::builder()
-                .header(header::CONTENT_TYPE, "application/Xml")
+                .header(header::CONTENT_TYPE, "application/xml")
                 .status(self.status_code())
                 .body(Body::from(body))
                 .expect("this cannot happen"),
@@ -99,6 +107,7 @@ where
 pub enum XmlErr {
     ReadBody(hyper::Error),
     Serde(Error),
+    InvalidContentType,
 }
 
 impl From<Error> for XmlErr {

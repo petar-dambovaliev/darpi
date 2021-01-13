@@ -1,8 +1,10 @@
 use async_trait::async_trait;
 use darpi::{
     app, handler, middleware, middleware::Expect, path_type, query_type, request::ExtractBody,
-    response::ResponderError, Body, Json, Method, Path, Query, RequestParts,
+    response::ResponderError, Body, Method, Path, Query, RequestParts, Xml,
 };
+use darpi_web::yaml::Yaml;
+use darpi_web::Json;
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
 use shaku::{module, Component, Interface};
@@ -107,7 +109,7 @@ async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
 #[handler(Container, [access_control(Admin)])]
-async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
+async fn do_something(p: Path<Name>, payload: ExtractBody<Yaml<Name>>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
 }
 

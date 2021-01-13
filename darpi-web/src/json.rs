@@ -3,7 +3,7 @@ use crate::response::{Responder, ResponderError};
 use crate::Response;
 use async_trait::async_trait;
 use derive_more::Display;
-use http::header;
+use http::{header, HeaderValue};
 use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -32,6 +32,14 @@ impl<T> FromRequestBody<Json<T>, JsonErr> for Json<T>
 where
     T: DeserializeOwned + 'static,
 {
+    async fn assert_content_type(content_type: Option<&HeaderValue>) -> Result<(), JsonErr> {
+        if let Some(hv) = content_type {
+            if hv != "application/json" {
+                return Err(JsonErr::InvalidContentType);
+            }
+        }
+        Ok(())
+    }
     async fn extract(b: Body) -> Result<Json<T>, JsonErr> {
         Self::deserialize_future(b).await
     }
@@ -102,6 +110,7 @@ where
 pub enum JsonErr {
     ReadBody(hyper::Error),
     Serde(Error),
+    InvalidContentType,
 }
 
 impl From<Error> for JsonErr {

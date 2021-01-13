@@ -1,6 +1,7 @@
 use crate::response::ResponderError;
 use async_trait::async_trait;
 use derive_more::{Display, From};
+use http::HeaderValue;
 use hyper::Body;
 use serde::{de, Deserialize, Deserializer};
 use serde_urlencoded;
@@ -40,7 +41,14 @@ where
 }
 
 #[async_trait]
-pub trait FromRequestBody<T, E> {
+pub trait FromRequestBody<T, E>
+where
+    T: 'static,
+    E: ResponderError + 'static,
+{
+    async fn assert_content_type(_content_type: Option<&HeaderValue>) -> Result<(), E> {
+        Ok(())
+    }
     async fn extract(b: Body) -> Result<T, E>;
 }
 

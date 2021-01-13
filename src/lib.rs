@@ -2,7 +2,8 @@
 
 pub use darpi_code_gen::{app, handler, middleware, path_type, query_type};
 pub use darpi_web::{
-    logger, middleware, middleware::Expect, request, request::Path, request::Query, response, Json,
+    logger, middleware, middleware::Expect, request, request::Path, request::Query, response,
+    xml::Xml, yaml::Yaml, Json,
 };
 
 pub use route::{ReqRoute, Route};

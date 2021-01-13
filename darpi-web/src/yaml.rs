@@ -3,7 +3,7 @@ use crate::response::{Responder, ResponderError};
 use crate::Response;
 use async_trait::async_trait;
 use derive_more::Display;
-use http::header;
+use http::{header, HeaderValue};
 use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -28,6 +28,14 @@ impl<T> FromRequestBody<Yaml<T>, YamlErr> for Yaml<T>
 where
     T: DeserializeOwned + 'static,
 {
+    async fn assert_content_type(content_type: Option<&HeaderValue>) -> Result<(), YamlErr> {
+        if let Some(hv) = content_type {
+            if hv != "application/yaml" && hv != "text/yaml" {
+                return Err(YamlErr::InvalidContentType);
+            }
+        }
+        Ok(())
+    }
     async fn extract(b: Body) -> Result<Yaml<T>, YamlErr> {
         Self::deserialize_future(b).await
     }
@@ -98,6 +106,7 @@ where
 pub enum YamlErr {
     ReadBody(hyper::Error),
     Serde(Error),
+    InvalidContentType,
 }
 
 impl From<Error> for YamlErr {
