@@ -8,6 +8,6 @@ edition = "2018"
 
 [dependencies]
 darpi-web = { path = "../darpi-web" }
-darpi-code-gen = { path = "../darpi-code-gen" }
+darpi-code-gen = { version = "0.1.0" }
 hyper = "0.13.9"
 darpi = { path = "../../darpi" }
