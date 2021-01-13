@@ -69,13 +69,29 @@ fn expand_middlewares_impl(
 
         let (def_c, give_c) = container.as_ref().map_or(Default::default(), |c| (quote!{c: std::sync::Arc<#c>,}, quote!{c}));
 
+        let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
         let q = quote! {
-            impl #name {
-                async fn #handler_name_request(#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), impl darpi::response::ResponderError> {
-                    #name::call_Request(p, #(#args ,)*  #give_c, b).await
+            #[async_trait::async_trait]
+            trait #dummy_trait {
+                async fn #handler_name_request(#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>>;
+                async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>>;
+            }
+            #[async_trait::async_trait]
+            impl #dummy_trait for #name {
+                async fn #handler_name_request(#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>>{
+                    let concrete = #name::call_Request(p, #(#args ,)*  #give_c, b).await;
+
+                    match concrete {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(e.respond_err())
+                    }
                 }
-                async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), impl darpi::response::ResponderError> {
-                    #name::call_Response(r, #(#args ,)* #give_c).await
+                async fn #handler_name_response(#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>>{
+                    let concrete = #name::call_Response(r, #(#args ,)* #give_c).await;
+                    match concrete {
+                        Ok(()) => Ok(()),
+                        Err(e) => Err(e.respond_err())
+                    }
                 }
             }
         };
@@ -114,13 +130,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
                 middleware_req.push(quote! {
                     if let Err(e) = #name::#h_req(#module_ident.clone(), &parts, &body).await {
-                        return Ok(e.respond_err());
+                        return Ok(e);
                     }
                 });
 
                 middleware_res.push(quote! {
                     if let Err(e) = #name::#h_res(#module_ident.clone(), &rb).await {
-                        return Ok(e.respond_err());
+                        return Ok(e);
                     }
                 });
             });

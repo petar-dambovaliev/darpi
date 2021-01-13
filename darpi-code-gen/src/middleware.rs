@@ -196,18 +196,20 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         quote! {,b: &#b}
     });
 
+    let visibility = func.vis;
+
     let tokens = quote! {
         #[allow(non_camel_case_types, missing_docs)]
         pub struct #name;
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T> #body) -> Result<(), #err_ident> #fn_call_module_where {
+            #visibility async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T> #body) -> Result<(), #err_ident> #fn_call_module_where {
                 #(#make_args )*
                 Self::#name(#(#give_args ,)*).await?;
                 Ok(())
             }
-            async fn #empty_call<T>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T>) -> Result<(), #err_ident> #fn_call_module_where {
+            #visibility async fn #empty_call<T>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T>) -> Result<(), #err_ident> #fn_call_module_where {
                 Ok(())
             }
         }

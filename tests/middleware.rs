@@ -3,7 +3,8 @@ use darpi::{
     app, handler, middleware, middleware::Expect, path_type, query_type, request::ExtractBody,
     response::ResponderError, Body, Method, Path, Query, RequestParts, Xml,
 };
-use darpi_web::yaml::Yaml;
+
+use darpi_middleware::body_size_limit;
 use darpi_web::Json;
 use derive_more::{Display, From};
 use serde::{Deserialize, Serialize};
@@ -108,8 +109,8 @@ async fn hello_world(p: Path<Name>, q: Option<Query<Name>>) -> String {
 // the enum variant `Admin` is corresponding to the middlewre `access_control`'s Expect<UserRole>
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
-#[handler(Container, [access_control(Admin)])]
-async fn do_something(p: Path<Name>, payload: ExtractBody<Yaml<Name>>) -> String {
+#[handler(Container, [access_control(Admin), body_size_limit(64)])]
+async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
 }
 
@@ -133,5 +134,7 @@ async fn main() {
                 handler: do_something
             },
         ],
-    });
+    })
+    .run()
+    .await;
 }
