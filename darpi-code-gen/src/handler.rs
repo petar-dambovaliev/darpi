@@ -1,5 +1,5 @@
 use proc_macro::TokenStream;
-use proc_macro2::Ident;
+use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use syn::parse_quote::ParseQuote;
@@ -177,9 +177,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
     let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
 
-    func.sig.inputs.iter().for_each(|arg| {
+    for arg in func.sig.inputs.iter() {
         if let FnArg::Typed(tp) = arg {
-            let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
+            let h_args = match make_handler_args(tp, i, &module_ident) {
+                Ok(k) => k,
+                Err(e) => return e,
+            };
+            let (arg_name, method_resolve) = match h_args {
                 HandlerArgs::Query(i, ts) => (i, ts),
                 HandlerArgs::Json(i, ts) => (i, ts),
                 HandlerArgs::Path(i, ts) => {
@@ -195,7 +199,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             give_args.push(quote! {#arg_name});
             i += 1;
         }
-    });
+    }
 
     if n_args > 1 {
         return Error::new_spanned(func, "One 1 path type is allowed")
@@ -375,7 +379,11 @@ enum HandlerArgs {
     Module(Ident, proc_macro2::TokenStream),
 }
 
-fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArgs {
+fn make_handler_args(
+    tp: &PatType,
+    i: u32,
+    module_ident: &Ident,
+) -> Result<HandlerArgs, TokenStream> {
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
@@ -385,17 +393,17 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArgs 
         //todo return err if there are more than 1 query args
         if last.ident == "Query" {
             let res = make_query(&arg_name, last);
-            return HandlerArgs::Query(arg_name, res);
+            return Ok(HandlerArgs::Query(arg_name, res));
         }
         //todo return err if there are more than 1 json args
         if last.ident == "ExtractBody" {
             let res = make_json_body(&arg_name, &tp.path, &last.arguments);
-            return HandlerArgs::Json(arg_name, res);
+            return Ok(HandlerArgs::Json(arg_name, res));
         }
         //todo return err if there are more than 1 path args
         if last.ident == "Path" {
             let res = make_path_args(&arg_name, &last);
-            return HandlerArgs::Path(arg_name, res);
+            return Ok(HandlerArgs::Path(arg_name, res));
         }
 
         if last.ident == "Option" {
@@ -405,16 +413,24 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArgs 
                         let first = tp.path.segments.first().unwrap();
                         if first.ident == "Query" {
                             let res = make_optional_query(&arg_name, last);
-                            return HandlerArgs::Option(arg_name, res);
+                            return Ok(HandlerArgs::Option(arg_name, res));
                         }
                     }
                 }
             }
         }
-    }
 
-    let method_resolve = quote! {
-        let #arg_name: #ttype = #module_ident.resolve();
-    };
-    HandlerArgs::Module(arg_name, method_resolve)
+        if last.ident == "Inject" {
+            let method_resolve = quote! {
+                let #arg_name: #ttype = #module_ident.resolve();
+            };
+            return Ok(HandlerArgs::Module(arg_name, method_resolve));
+        }
+    }
+    Err(Error::new(
+        Span::call_site(),
+        format!("unsupported type {}", ttype.to_token_stream().to_string()),
+    )
+    .to_compile_error()
+    .into())
 }

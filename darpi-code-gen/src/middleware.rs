@@ -1,6 +1,6 @@
 use crate::handler::MODULE_PREFIX;
 use proc_macro::TokenStream;
-use proc_macro2::Ident;
+use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use syn::parse_quote::{parse, ParseQuote};
@@ -118,9 +118,13 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let mut fn_call_module_args = vec![];
     let module_ident = format_ident!("{}", MODULE_PREFIX);
 
-    func.sig.inputs.iter().for_each(|arg| {
+    for arg in func.sig.inputs.iter() {
         if let FnArg::Typed(tp) = arg {
-            let (arg_name, method_resolve) = match make_handler_args(tp, i, &module_ident) {
+            let h_args = match make_handler_args(tp, i, &module_ident) {
+                Ok(k) => k,
+                Err(e) => return e,
+            };
+            let (arg_name, method_resolve) = match h_args {
                 HandlerArg::Permanent(i, ts) => (i, ts),
                 HandlerArg::Expect(id, ttype, ts) => {
                     let cg = format_ident!("T{}", i);
@@ -145,7 +149,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
             give_args.push(quote! {#arg_name});
             i += 1;
         }
-    });
+    }
 
     let fn_call_module_where = if !where_segments.is_empty() {
         quote! {
@@ -224,7 +228,11 @@ enum HandlerArg {
     Permanent(Ident, proc_macro2::TokenStream),
 }
 
-fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
+fn make_handler_args(
+    tp: &PatType,
+    i: u32,
+    module_ident: &Ident,
+) -> Result<HandlerArg, TokenStream> {
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
@@ -235,11 +243,11 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
 
             if last.ident == "RequestParts" || last.ident == "Response" {
                 let res = quote! {let #arg_name = p;};
-                return HandlerArg::Permanent(arg_name, res);
+                return Ok(HandlerArg::Permanent(arg_name, res));
             }
             if last.ident == "Body" {
                 let res = quote! {let #arg_name = b;};
-                return HandlerArg::Permanent(arg_name, res);
+                return Ok(HandlerArg::Permanent(arg_name, res));
             }
         }
     }
@@ -253,14 +261,22 @@ fn make_handler_args(tp: &PatType, i: u32, module_ident: &Ident) -> HandlerArg {
                 t_type = quote! {#args};
             }
             let res = make_expect(&arg_name, i);
-            return HandlerArg::Expect(arg_name, t_type, res);
+            return Ok(HandlerArg::Expect(arg_name, t_type, res));
+        }
+        if last.ident == "Inject" {
+            let method_resolve = quote! {
+                let #arg_name: #ttype = #module_ident.resolve();
+            };
+            return Ok(HandlerArg::Module(arg_name, method_resolve));
         }
     }
 
-    let method_resolve = quote! {
-        let #arg_name: #ttype = #module_ident.resolve();
-    };
-    HandlerArg::Module(arg_name, method_resolve)
+    Err(Error::new(
+        Span::call_site(),
+        format!("unsupported type {}", ttype.to_token_stream().to_string()),
+    )
+    .to_compile_error()
+    .into())
 }
 
 fn make_expect(arg_name: &Ident, i: u32) -> proc_macro2::TokenStream {

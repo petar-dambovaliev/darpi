@@ -1,4 +1,4 @@
-use darpi::{app, handler, path_type, query_type, Error, Json, Method, Path, Query};
+use darpi::{app, handler, path_type, query_type, Error, Inject, Json, Method, Path, Query};
 use darpi_middleware::body_size_limit;
 use darpi_web::request::ExtractBody;
 use serde::{Deserialize, Serialize};
@@ -72,15 +72,12 @@ pub struct Name {
 // an incoming request url does not contain the query parameters, it will
 // result in an error response
 #[handler(Container)]
-async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logger>) -> String {
+async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Inject<dyn Logger>) -> String {
     let other = q.map_or("nobody".to_owned(), |n| n.0.name);
     let response = format!("{} sends hello to {}", p.name, other);
     logger.log(&response);
     response
 }
-
-//todo show proper message when the argument cannot be recognized
-// currently it defaults to the container
 
 // Json<Name> is extracted from the request body
 // failure to do so will result in an error response
@@ -88,7 +85,7 @@ async fn hello_world(p: Path<Name>, q: Option<Query<Name>>, logger: Arc<dyn Logg
 async fn do_something(
     p: Path<Name>,
     payload: ExtractBody<Json<Name>>,
-    logger: Arc<dyn Logger>,
+    logger: Inject<dyn Logger>,
 ) -> String {
     let response = format!("{} sends hello to {}", p.name, payload.name);
     logger.log(&response);

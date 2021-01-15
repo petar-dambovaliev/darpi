@@ -8,6 +8,8 @@ pub use darpi_web::{
 
 pub use darpi_route::{ReqRoute, Route};
 
+pub type Inject<T> = std::sync::Arc<T>;
+
 pub use futures;
 pub use http::{header, request::Parts as RequestParts, Method, StatusCode};
 pub use hyper::{service, Body, Error, Request, Response, Server};
