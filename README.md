@@ -87,9 +87,6 @@ async fn main() -> Result<(), darpi::Error> {
        // the provided address is verified at compile time
         address: "127.0.0.1:3000",
         // via the container we inject our dependencies
-        // in this case, MyLogger type
-        // any handler that has the trait Logger as an argument
-        // will be given MyLogger
         module: make_container => Container,
         // a set of global middleware that will be executed for every handler
         // it will assert that every request has a body size less than 128 bytes
