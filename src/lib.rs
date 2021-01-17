@@ -4,10 +4,9 @@ pub use darpi_code_gen::{app, handler, middleware, Path, Query};
 pub use darpi_web::{logger, request, response, xml::Xml, yaml::Yaml, Json};
 
 pub use darpi_route::{ReqRoute, Route};
-
 pub use futures;
 pub use http::{header, request::Parts as RequestParts, Method, StatusCode};
-pub use hyper::{service, Body, Error, Request, Response, Server};
+pub use hyper::{body::HttpBody, service, Body, Error, Request, Response, Server};
 use serde::{de, Deserialize, Deserializer};
 pub use serde_json;
 use std::fmt::Display;

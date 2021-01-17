@@ -1,13 +1,17 @@
+use darpi::request::PayloadError;
+use darpi::HttpBody;
 use darpi::{app, handler, middleware, Body, Method, Path};
-use darpi_middleware::body_size_limit;
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
-use std::convert::Infallible;
 
 #[middleware(Request)]
-pub async fn hello_middleware(#[body] b: &Body, #[expect] handler: &str) -> Result<(), Infallible> {
-    println!("hello middleware from `{}`", handler);
+pub async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<(), PayloadError> {
+    if let Some(limit) = b.size_hint().upper() {
+        if size < limit {
+            return Err(PayloadError::Size(size, limit));
+        }
+    }
     Ok(())
 }
 
@@ -16,16 +20,7 @@ pub struct Name {
     name: String,
 }
 
-// the handler macro has 2 optional arguments
-// the shaku container type and a collection of middlewares
-// the enum variant `Admin` is corresponding to the middlewre `access_control`'s Expect<UserRole>
-// Json<Name> is extracted from the request body
-// failure to do so will result in an error response
-// here we pass in the string "John Doe" to the `hello_middleware`
-// it is being passed on matching the `handler: Expect<&str>` argument
-// then we use the builtin body_size_limit middleware and we limit the body size
-// to 64 bytes
-#[handler([hello_middleware("John Doe"), body_size_limit(64)])]
+#[handler([body_size_limit(64)])]
 async fn do_something(#[path] p: Name, #[body] payload: Json<Name>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
 }
@@ -48,6 +43,7 @@ async fn main() -> Result<(), darpi::Error> {
     app!({
         address: address,
         module: make_container => Container,
+        middleware: [body_size_limit(128)],
         bind: [
             {
                 route: "/hello_world/{name}",

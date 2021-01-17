@@ -53,7 +53,7 @@ pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
 pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
 pub(crate) const MODULE_PREFIX: &str = "module";
 
-fn expand_middlewares_impl(
+pub(crate) fn expand_middlewares_impl(
     container: &Option<Ident>,
     handler_name: &Ident,
     mut p: Punctuated<ExprCall, Comma>,
@@ -244,8 +244,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let fn_expand_call = quote! {
         #[inline]
-        async fn expand_call<'a#dummy_t>(r: darpi::Request<darpi::Body>, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
-            let (parts, body) = r.into_parts();
+        async fn expand_call<'a#dummy_t>(parts: darpi::RequestParts, body: darpi::Body, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
             #(#middleware_req )*
             let rb = Self::call(parts, body, (req_route, req_args), #module_ident).await.unwrap();
             #(#middleware_res )*
