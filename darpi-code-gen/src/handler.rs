@@ -219,6 +219,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                use darpi::response::Responder;
                #[allow(unused_imports)]
                use shaku::HasComponent;
+               #[allow(unused_imports)]
+               use darpi::request::FromQuery;
 
                #(#make_args )*
                Ok(async {
@@ -277,10 +279,11 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 }
 
 fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
+    let inner = &last.arguments;
     quote! {
         let #arg_name: #last = match &parts.uri.query() {
             Some(q) => {
-                let #arg_name: #last = match Query::from_query(q) {
+                let #arg_name: #last = match #inner::from_query(q) {
                     Ok(w) => Some(w),
                     Err(w) => None
                 };
@@ -304,7 +307,7 @@ fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream 
             None => return Ok(respond_to_err::#inner(darpi::request::QueryPayloadError::NotExist))
         };
 
-        let #arg_name: #last = match Query::from_query(#arg_name) {
+        let #arg_name: #last = match darpi::request::FromQuery::from_query(#arg_name) {
             Ok(q) => q,
             Err(e) => return Ok(respond_to_err::#inner(e))
         };

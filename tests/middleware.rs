@@ -37,7 +37,7 @@ fn make_container() -> Container {
     module
 }
 
-#[tokio::main]
+#[tokio::test]
 async fn main() -> Result<(), darpi::Error> {
     let address = format!("127.0.0.1:{}", 3000);
     app!({

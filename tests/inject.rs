@@ -79,7 +79,7 @@ async fn hello_world(
     response
 }
 
-#[tokio::main]
+#[tokio::test]
 async fn main() -> Result<(), Error> {
     // the `app` macro creates a server and allows the user to call
     // the method `run` and await on that future
