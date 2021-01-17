@@ -70,11 +70,10 @@ pub struct Name {
 #[handler(Container)]
 async fn hello_world(
     #[path] p: Name,
-    #[query] q: Option<Name>,
+    #[query] q: Name,
     #[inject] logger: Arc<dyn Logger>,
 ) -> String {
-    let other = q.map_or("nobody".to_owned(), |n| n.name);
-    let response = format!("{} sends hello to {}", p.name, other);
+    let response = format!("{} sends hello to {}", p.name, q.name);
     logger.log(&response);
     response
 }

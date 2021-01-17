@@ -295,21 +295,20 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
 }
 
 fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
-    let inner = &last.arguments;
     let respond_err = make_respond_err(
         quote! {respond_to_err},
         quote! {darpi::request::QueryPayloadError},
     );
     quote! {
         #respond_err
-        let #arg_name = match &parts.uri.query() {
+        let #arg_name = match parts.uri.query() {
             Some(q) => q,
-            None => return Ok(respond_to_err::#inner(darpi::request::QueryPayloadError::NotExist))
+            None => return Ok(respond_to_err::<#last>(darpi::request::QueryPayloadError::NotExist))
         };
 
-        let #arg_name: #last = match darpi::request::FromQuery::from_query(#arg_name) {
+        let #arg_name: #last = match #last::from_query(#arg_name) {
             Ok(q) => q,
-            Err(e) => return Ok(respond_to_err::#inner(e))
+            Err(e) => return Ok(respond_to_err::<#last>(e))
         };
     }
 }
