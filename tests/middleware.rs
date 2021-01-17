@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use shaku::module;
 
 #[middleware(Request)]
-pub async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<(), PayloadError> {
+async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<(), PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));
@@ -48,6 +48,7 @@ async fn main() -> Result<(), darpi::Error> {
     app!({
         address: address,
         module: make_container => Container,
+        // a set of global middleware that will be executed for every handler
         middleware: [body_size_limit(128)],
         bind: [
             {
