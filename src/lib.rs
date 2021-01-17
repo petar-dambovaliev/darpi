@@ -1,14 +1,9 @@
 #![forbid(unsafe_code)]
 
-pub use darpi_code_gen::{app, handler, middleware, path_type, query_type};
-pub use darpi_web::{
-    logger, middleware, middleware::Expect, request, request::Path, request::Query, response,
-    xml::Xml, yaml::Yaml, Json,
-};
+pub use darpi_code_gen::{app, handler, middleware, Path, Query};
+pub use darpi_web::{logger, request, response, xml::Xml, yaml::Yaml, Json};
 
 pub use darpi_route::{ReqRoute, Route};
-
-pub type Inject<T> = std::sync::Arc<T>;
 
 pub use futures;
 pub use http::{header, request::Parts as RequestParts, Method, StatusCode};

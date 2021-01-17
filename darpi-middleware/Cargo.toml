@@ -9,7 +9,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-darpi-web = {version = "0.1.0" }
+darpi-web = {path = "../darpi-web" }
 darpi-code-gen = { path = "../darpi-code-gen" }
 hyper = "0.13.9"
-darpi = { version = "0.1.0" }
+darpi = { path = "../../darpi" }

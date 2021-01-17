@@ -34,8 +34,9 @@ where
             if hv != "application/xml" {
                 return Err(XmlErr::InvalidContentType);
             }
+            return Ok(());
         }
-        Ok(())
+        Err(XmlErr::MissingContentType)
     }
     async fn extract(b: Body) -> Result<Xml<T>, XmlErr> {
         Self::deserialize_future(b).await
@@ -108,6 +109,7 @@ pub enum XmlErr {
     ReadBody(hyper::Error),
     Serde(Error),
     InvalidContentType,
+    MissingContentType,
 }
 
 impl From<Error> for XmlErr {

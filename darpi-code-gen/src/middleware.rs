@@ -51,7 +51,7 @@ fn get_return_type(r: &ReturnType) -> proc_macro2::TokenStream {
 }
 
 pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStream {
-    let func = parse_macro_input!(input as ItemFn);
+    let mut func = parse_macro_input!(input as ItemFn);
     if func.sig.asyncness.is_none() {
         return Error::new_spanned(func, "Only Async functions can be used as handlers")
             .to_compile_error()
@@ -118,7 +118,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let mut fn_call_module_args = vec![];
     let module_ident = format_ident!("{}", MODULE_PREFIX);
 
-    for arg in func.sig.inputs.iter() {
+    for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
             let h_args = match make_handler_args(tp, i, &module_ident) {
                 Ok(k) => k,
@@ -128,7 +128,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                 HandlerArg::Permanent(i, ts) => (i, ts),
                 HandlerArg::Expect(id, ttype, ts) => {
                     let cg = format_ident!("T{}", i);
-                    fn_call_module_args.push(quote! {#cg: darpi::Expect<#ttype>});
+                    fn_call_module_args.push(quote! {#cg: #ttype});
 
                     (id, ts)
                 }
@@ -148,6 +148,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
             make_args.push(method_resolve);
             give_args.push(quote! {#arg_name});
             i += 1;
+            tp.attrs = Default::default();
         }
     }
 
@@ -237,38 +238,32 @@ fn make_handler_args(
 
     let arg_name = format_ident!("arg_{:x}", i);
 
+    let attr = tp.attrs.first().unwrap();
+    let attr_ident = attr.path.get_ident().unwrap();
+
     if let Type::Reference(rt) = *ttype.clone() {
         if let Type::Path(tp) = *rt.elem.clone() {
-            let last = tp.path.segments.last().unwrap();
-
-            if last.ident == "RequestParts" || last.ident == "Response" {
+            if attr_ident == "request_parts" || attr_ident == "response" {
                 let res = quote! {let #arg_name = p;};
                 return Ok(HandlerArg::Permanent(arg_name, res));
             }
-            if last.ident == "Body" {
+            if attr_ident == "body" {
                 let res = quote! {let #arg_name = b;};
                 return Ok(HandlerArg::Permanent(arg_name, res));
             }
         }
     }
 
-    if let Type::Path(tp) = *ttype.clone() {
-        let last = tp.path.segments.last().unwrap();
-        if last.ident == "Expect" {
-            let mut t_type = quote! {};
-            if let PathArguments::AngleBracketed(ag) = &last.arguments {
-                let args = ag.args.clone();
-                t_type = quote! {#args};
-            }
-            let res = make_expect(&arg_name, i);
-            return Ok(HandlerArg::Expect(arg_name, t_type, res));
-        }
-        if last.ident == "Inject" {
-            let method_resolve = quote! {
-                let #arg_name: #ttype = #module_ident.resolve();
-            };
-            return Ok(HandlerArg::Module(arg_name, method_resolve));
-        }
+    if attr_ident == "expect" {
+        let res = make_expect(&arg_name, i);
+        let t_type = quote! {#ttype};
+        return Ok(HandlerArg::Expect(arg_name, t_type, res));
+    }
+    if attr_ident == "inject" {
+        let method_resolve = quote! {
+            let #arg_name: #ttype = #module_ident.resolve();
+        };
+        return Ok(HandlerArg::Module(arg_name, method_resolve));
     }
 
     Err(Error::new(

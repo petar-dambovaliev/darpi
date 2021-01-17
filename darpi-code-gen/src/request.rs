@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, token::Pound, AttrStyle, Attribute, Error, Fields, ItemStruct, Path};
 
-pub(crate) fn make_path_type(_: TokenStream, input: TokenStream) -> TokenStream {
+pub(crate) fn make_path_type(input: TokenStream) -> TokenStream {
     let mut struct_arg = parse_macro_input!(input as ItemStruct);
     let name = struct_arg.ident.clone();
 
@@ -29,7 +29,6 @@ pub(crate) fn make_path_type(_: TokenStream, input: TokenStream) -> TokenStream 
         });
 
         let tokens = quote! {
-            #struct_arg
             impl darpi::response::ErrResponder<darpi::request::PathError, darpi::Body> for #name {
                 fn respond_err(e: darpi::request::PathError) -> darpi::Response<darpi::Body> {
                     let msg = match e {
@@ -51,12 +50,11 @@ pub(crate) fn make_path_type(_: TokenStream, input: TokenStream) -> TokenStream 
         .into()
 }
 
-pub(crate) fn make_query_type(_: TokenStream, input: TokenStream) -> TokenStream {
+pub(crate) fn make_query_type(input: TokenStream) -> TokenStream {
     let struct_arg = parse_macro_input!(input as ItemStruct);
     let name = &struct_arg.ident;
 
     let tokens = quote! {
-        #struct_arg
         impl darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body> for #name {
             fn respond_err(e: darpi::request::QueryPayloadError) -> darpi::Response<darpi::Body> {
                 let msg = match e {

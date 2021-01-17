@@ -33,8 +33,9 @@ where
             if hv != "application/yaml" && hv != "text/yaml" {
                 return Err(YamlErr::InvalidContentType);
             }
+            return Ok(());
         }
-        Ok(())
+        Err(YamlErr::MissingContentType)
     }
     async fn extract(b: Body) -> Result<Yaml<T>, YamlErr> {
         Self::deserialize_future(b).await
@@ -107,6 +108,7 @@ pub enum YamlErr {
     ReadBody(hyper::Error),
     Serde(Error),
     InvalidContentType,
+    MissingContentType,
 }
 
 impl From<Error> for YamlErr {

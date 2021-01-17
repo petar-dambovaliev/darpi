@@ -37,8 +37,9 @@ where
             if hv != "application/json" {
                 return Err(JsonErr::InvalidContentType);
             }
+            return Ok(());
         }
-        Ok(())
+        Err(JsonErr::MissingContentType)
     }
     async fn extract(b: Body) -> Result<Json<T>, JsonErr> {
         Self::deserialize_future(b).await
@@ -111,6 +112,7 @@ pub enum JsonErr {
     ReadBody(hyper::Error),
     Serde(Error),
     InvalidContentType,
+    MissingContentType,
 }
 
 impl From<Error> for JsonErr {

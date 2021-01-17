@@ -1,7 +1,4 @@
-use darpi::{
-    app, handler, middleware, middleware::Expect, path_type, query_type, request::ExtractBody,
-    Body, Method, Path,
-};
+use darpi::{app, handler, middleware, Body, Method, Path};
 use darpi_middleware::body_size_limit;
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
@@ -9,14 +6,12 @@ use shaku::module;
 use std::convert::Infallible;
 
 #[middleware(Request)]
-pub async fn hello_middleware(b: &Body, handler: Expect<&str>) -> Result<(), Infallible> {
-    println!("hello middleware from `{}`", handler.into_inner());
+pub async fn hello_middleware(#[body] b: &Body, #[expect] handler: &str) -> Result<(), Infallible> {
+    println!("hello middleware from `{}`", handler);
     Ok(())
 }
 
-#[path_type]
-#[query_type]
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Path)]
 pub struct Name {
     name: String,
 }
@@ -31,7 +26,7 @@ pub struct Name {
 // then we use the builtin body_size_limit middleware and we limit the body size
 // to 64 bytes
 #[handler([hello_middleware("John Doe"), body_size_limit(64)])]
-async fn do_something(p: Path<Name>, payload: ExtractBody<Json<Name>>) -> String {
+async fn do_something(#[path] p: Name, #[body] payload: Json<Name>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
 }
 

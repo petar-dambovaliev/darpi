@@ -6,7 +6,7 @@ use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
     bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
-    ExprCall, FnArg, GenericArgument, ItemFn, PatType, Path, PathArguments, PathSegment, Type,
+    ExprCall, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type, TypePath,
 };
 
 #[derive(Debug)]
@@ -64,7 +64,7 @@ fn expand_middlewares_impl(
         let handler_name_request = format_ident!("{}_request", handler_name);
         let handler_name_response = format_ident!("{}_response", handler_name);
         let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
-            quote! {darpi::Expect(#arg)}
+            quote! {#arg}
         }).collect();
 
         let (where_clause, dummy_gen, def_c, give_c) = container.as_ref().map_or((quote!{
@@ -75,11 +75,13 @@ fn expand_middlewares_impl(
         let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
         let q = quote! {
             #[async_trait::async_trait]
+            #[allow(non_camel_case_types, missing_docs)]
             trait #dummy_trait {
                 async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
                 async fn #handler_name_response #dummy_gen (#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
             }
             #[async_trait::async_trait]
+            #[allow(non_camel_case_types, missing_docs)]
             impl #dummy_trait for #name {
                 async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>> #where_clause{
                     use darpi::response::ResponderError;
@@ -107,7 +109,7 @@ fn expand_middlewares_impl(
 }
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
-    let func = parse_macro_input!(input as ItemFn);
+    let mut func = parse_macro_input!(input as ItemFn);
 
     if func.sig.asyncness.is_none() {
         return Error::new_spanned(func, "Only Async functions can be used as handlers")
@@ -168,7 +170,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         };
     }
 
-    let func_copy = func.clone();
     let mut make_args = vec![];
     let mut give_args = vec![];
     let mut i = 0_u32;
@@ -177,7 +178,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
     let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
 
-    for arg in func.sig.inputs.iter() {
+    for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
             let h_args = match make_handler_args(tp, i, &module_ident) {
                 Ok(k) => k,
@@ -198,6 +199,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             make_args.push(method_resolve);
             give_args.push(quote! {#arg_name});
             i += 1;
+            tp.attrs = Default::default();
         }
     }
 
@@ -206,6 +208,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             .to_compile_error()
             .into();
     }
+
+    let func_copy = func.clone();
 
     let fn_call = quote! {
         async fn call<'a>(
@@ -323,7 +327,6 @@ fn make_respond_err(
 }
 
 fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
-    let inner = &last.arguments;
     let respond_err = make_respond_err(
         quote! {respond_to_path_err},
         quote! {darpi::request::PathError},
@@ -333,7 +336,7 @@ fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStr
         let json_args = match darpi::serde_json::to_string(&req_args) {
             Ok(k) => k,
             Err(e) => {
-                return Ok(respond_to_path_err::#inner(
+                return Ok(respond_to_path_err::<#last>(
                     darpi::request::PathError::Deserialize(e.to_string()),
                 ))
             }
@@ -341,7 +344,7 @@ fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStr
         let #arg_name: #last = match darpi::serde_json::from_str(&json_args) {
             Ok(k) => k,
             Err(e) => {
-                return Ok(respond_to_path_err::#inner(
+                return Ok(respond_to_path_err::<#last>(
                     darpi::request::PathError::Deserialize(e.to_string()),
                 ))
             }
@@ -349,22 +352,25 @@ fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStr
     }
 }
 
-fn make_json_body(
-    arg_name: &Ident,
-    path: &Path,
-    inner: &PathArguments,
-) -> proc_macro2::TokenStream {
+fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream {
+    let mut format = path.path.segments.clone();
+    format
+        .iter_mut()
+        .for_each(|s| s.arguments = Default::default());
+
+    let inner = &path.path.segments.last().unwrap().arguments;
+
     let output = quote! {
         use darpi::request::FromRequestBody;
         use darpi::response::ResponderError;
 
-        match #inner::assert_content_type(parts.headers.get("content-type")).await {
+        match #format::#inner::assert_content_type(parts.headers.get("content-type")).await {
             Ok(()) => {}
             Err(e) => return Ok(e.respond_err()),
         }
 
-        let #arg_name: #path = match #inner::extract(body).await {
-            Ok(q) => ExtractBody(q),
+        let #arg_name: #path = match #format::extract(body).await {
+            Ok(q) => q,
             Err(e) => return Ok(e.respond_err())
         };
     };
@@ -387,40 +393,48 @@ fn make_handler_args(
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
+    if tp.attrs.len() != 1 {
+        return Err(
+            Error::new(Span::call_site(), format!("expected 1 attribute macro"))
+                .to_compile_error()
+                .into(),
+        );
+    }
+
+    let attr = tp.attrs.first().unwrap();
 
     if let Type::Path(tp) = *ttype.clone() {
         let last = tp.path.segments.last().unwrap();
-        //todo return err if there are more than 1 query args
-        if last.ident == "Query" {
-            let res = make_query(&arg_name, last);
-            return Ok(HandlerArgs::Query(arg_name, res));
-        }
-        //todo return err if there are more than 1 json args
-        if last.ident == "ExtractBody" {
-            let res = make_json_body(&arg_name, &tp.path, &last.arguments);
-            return Ok(HandlerArgs::Json(arg_name, res));
-        }
-        //todo return err if there are more than 1 path args
-        if last.ident == "Path" {
-            let res = make_path_args(&arg_name, &last);
-            return Ok(HandlerArgs::Path(arg_name, res));
-        }
+        let attr_ident = attr.path.get_ident().unwrap();
 
-        if last.ident == "Option" {
-            if let PathArguments::AngleBracketed(ab) = &last.arguments {
-                if let GenericArgument::Type(t) = ab.args.first().unwrap() {
-                    if let Type::Path(tp) = t {
-                        let first = tp.path.segments.first().unwrap();
-                        if first.ident == "Query" {
+        //todo return err if there are more than 1 query args
+        if attr_ident == "query" {
+            if last.ident == "Option" {
+                if let PathArguments::AngleBracketed(ab) = &last.arguments {
+                    if let GenericArgument::Type(t) = ab.args.first().unwrap() {
+                        if let Type::Path(tp) = t {
                             let res = make_optional_query(&arg_name, last);
                             return Ok(HandlerArgs::Option(arg_name, res));
                         }
                     }
                 }
             }
+
+            let res = make_query(&arg_name, last);
+            return Ok(HandlerArgs::Query(arg_name, res));
+        }
+        //todo return err if there are more than 1 json args
+        if attr_ident == "body" {
+            let res = make_json_body(&arg_name, &tp);
+            return Ok(HandlerArgs::Json(arg_name, res));
+        }
+        //todo return err if there are more than 1 path args
+        if attr_ident == "path" {
+            let res = make_path_args(&arg_name, &last);
+            return Ok(HandlerArgs::Path(arg_name, res));
         }
 
-        if last.ident == "Inject" {
+        if attr_ident == "inject" {
             let method_resolve = quote! {
                 let #arg_name: #ttype = #module_ident.resolve();
             };
