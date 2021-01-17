@@ -25,6 +25,11 @@ async fn do_something(#[path] p: Name, #[body] payload: Json<Name>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
 }
 
+#[handler]
+async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> String {
+    format!("{} sends hello to {}", p.name, payload.name)
+}
+
 module! {
     Container {
         components = [],
@@ -51,6 +56,13 @@ async fn main() -> Result<(), darpi::Error> {
                 // the POST method allows this handler to have
                 // Json<Name> as an argument
                 handler: do_something
+            },
+            {
+                route: "/hello_world1/{name}",
+                method: Method::POST,
+                // the POST method allows this handler to have
+                // Json<Name> as an argument
+                handler: do_something_else
             },
         ],
     })

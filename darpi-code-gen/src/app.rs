@@ -191,11 +191,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                     }.await,
                                 };
 
-                                let fut = match handler.0 {
+                                let rb = match handler.0 {
                                     #(#routes_match ,)*
                                 };
 
-                                let rb = fut.await;
                                 if let Ok(rb) = &rb {
                                     #(#middleware_res )*
                                 }
@@ -307,7 +306,7 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
 
         routes_match.push(quote! {
             RoutePossibilities::#variant_name => {
-                #variant_value::expand_call(parts, body, handler.1, inner_module.clone())
+                #variant_value::expand_call(parts, body, handler.1, inner_module.clone()).await
             }
         });
     });
