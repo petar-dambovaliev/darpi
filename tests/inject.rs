@@ -79,6 +79,11 @@ async fn main() -> Result<(), Error> {
                 // Json<T> argument would result in a compilation error
                 handler: hello_world
             },
+            {
+                route: "/hello_world/{name}",
+                method: Method::POST,
+                handler: do_something_else
+            },
         ],
     })
     .run()
