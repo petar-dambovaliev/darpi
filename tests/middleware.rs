@@ -6,13 +6,13 @@ use serde::{Deserialize, Serialize};
 use shaku::module;
 
 #[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<(), PayloadError> {
+async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<u64, PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));
         }
     }
-    Ok(())
+    Ok(size)
 }
 
 #[derive(Deserialize, Serialize, Debug, Path)]
@@ -21,8 +21,12 @@ pub struct Name {
 }
 
 #[handler([body_size_limit(64)])]
-async fn do_something(#[path] p: Name, #[body] payload: Json<Name>) -> String {
-    format!("{} sends hello to {}", p.name, payload.name)
+async fn do_something(
+    #[path] p: Name,
+    #[body] payload: Json<Name>,
+    #[middleware(0)] size: u64,
+) -> String {
+    format!("{} sends hello to {} size {}", p.name, payload.name, size)
 }
 
 #[handler]

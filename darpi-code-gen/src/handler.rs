@@ -2,11 +2,13 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
+use std::collections::HashMap;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
-    ExprCall, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type, TypePath,
+    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, Expr,
+    ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type,
+    TypePath, TypeTuple,
 };
 
 #[derive(Debug)]
@@ -57,8 +59,11 @@ pub(crate) fn expand_middlewares_impl(
     container: &Option<Ident>,
     handler_name: &Ident,
     mut p: Punctuated<ExprCall, Comma>,
+    map: HashMap<u64, Type>,
 ) -> Vec<proc_macro2::TokenStream> {
     let mut middleware_impl = vec![];
+    let mut i = 0_u64;
+
     p.iter_mut().for_each(|e| {
         let name = &e.func;
         let handler_name_request = format_ident!("{}_request", handler_name);
@@ -73,22 +78,28 @@ pub(crate) fn expand_middlewares_impl(
         }, quote!{<T>}, quote!{c: std::sync::Arc<T>,}, quote!{c}), |c| (Default::default(), Default::default(), quote!{c: std::sync::Arc<#c>,}, quote!{c}));
 
         let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
+
+        let (ttype, ok) = match map.get(&i) {
+            Some(t) => (t.clone(), quote!{Ok(t) => Ok(t)}),
+            None => (Type::Tuple(TypeTuple{ paren_token: Default::default(), elems: Default::default() }), quote!{Ok(_) => Ok(())})
+        };
+
         let q = quote! {
             #[async_trait::async_trait]
             #[allow(non_camel_case_types, missing_docs)]
             trait #dummy_trait {
-                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
+                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause;
                 async fn #handler_name_response #dummy_gen (#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
             }
             #[async_trait::async_trait]
             #[allow(non_camel_case_types, missing_docs)]
             impl #dummy_trait for #name {
-                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<(), darpi::Response<darpi::Body>> #where_clause{
+                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause{
                     use darpi::response::ResponderError;
                     let concrete = #name::call_Request(p, #(#args ,)*  #give_c, b).await;
 
                     match concrete {
-                        Ok(()) => Ok(()),
+                        #ok,
                         Err(e) => Err(e.respond_err())
                     }
                 }
@@ -96,7 +107,7 @@ pub(crate) fn expand_middlewares_impl(
                     use darpi::response::ResponderError;
                     let concrete = #name::call_Response(r, #(#args ,)* #give_c).await;
                     match concrete {
-                        Ok(()) => Ok(()),
+                        Ok(_) => Ok(()),
                         Err(e) => Err(e.respond_err())
                     }
                 }
@@ -104,6 +115,7 @@ pub(crate) fn expand_middlewares_impl(
         };
 
         middleware_impl.push(q);
+        i += 1;
     });
     middleware_impl
 }
@@ -118,27 +130,71 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     }
 
     let func_name = &func.sig.ident;
+    let module_ident = format_ident!("{}", MODULE_PREFIX);
+    let mut make_args = vec![];
+    let mut give_args = vec![];
+    let mut i = 0_u32;
+    let mut n_args = 0u8;
+    let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
+    let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
+    let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
+    let mut map = HashMap::new();
+
+    for arg in func.sig.inputs.iter_mut() {
+        if let FnArg::Typed(tp) = arg {
+            let h_args = match make_handler_args(tp, i, &module_ident) {
+                Ok(k) => k,
+                Err(e) => return e,
+            };
+            let (arg_name, method_resolve) = match h_args {
+                HandlerArgs::Query(i, ts) => (i, ts),
+                HandlerArgs::Json(i, ts) => (i, ts),
+                HandlerArgs::Path(i, ts) => {
+                    n_args += 1;
+                    has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
+                    (i, ts)
+                }
+                HandlerArgs::Option(i, ts) => (i, ts),
+                HandlerArgs::Module(i, ts) => (i, ts),
+                HandlerArgs::Middleware(i, ts, index, ttype) => {
+                    map.insert(index, ttype);
+                    (i, ts)
+                }
+            };
+
+            make_args.push(method_resolve);
+            give_args.push(quote! {#arg_name});
+            i += 1;
+            tp.attrs = Default::default();
+        }
+    }
+
+    if n_args > 1 {
+        return Error::new_spanned(func, "One 1 path type is allowed")
+            .to_compile_error()
+            .into();
+    }
+
     let mut module = Default::default();
     let mut dummy_t = quote! {,T};
-    let module_ident = format_ident!("{}", MODULE_PREFIX);
     let mut middlewares_impl = Default::default();
     let mut middleware_req = vec![];
     let mut middleware_res = vec![];
+    let mut i = 0u64;
 
     if !args.is_empty() {
         let arguments = parse_macro_input!(args as Arguments);
         if let Some(m) = arguments.middleware {
-            middlewares_impl = expand_middlewares_impl(&arguments.module, func_name, m.clone());
-
             let h_req = format_ident!("{}_request", func_name);
             let h_res = format_ident!("{}_response", func_name);
             m.iter().for_each(|e| {
                 let name = &e.func;
-
+                let m_arg_ident = format_ident!("m_arg_{}", i);
                 middleware_req.push(quote! {
-                    if let Err(e) = #name::#h_req(#module_ident.clone(), &parts, &body).await {
-                        return Ok(e);
-                    }
+                    let #m_arg_ident = match #name::#h_req(#module_ident.clone(), &parts, &body).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e),
+                    };
                 });
 
                 middleware_res.push(quote! {
@@ -146,7 +202,11 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                         return Ok(e);
                     }
                 });
+                i += 1;
             });
+
+            middlewares_impl =
+                expand_middlewares_impl(&arguments.module, func_name, m.clone(), map);
         }
         if let Some(m) = arguments.module {
             module = quote! {#module_ident: std::sync::Arc<#m>};
@@ -170,64 +230,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         };
     }
 
-    let mut make_args = vec![];
-    let mut give_args = vec![];
-    let mut i = 0_u32;
-    let mut n_args = 0u8;
-    let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
-    let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
-    let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
-
-    for arg in func.sig.inputs.iter_mut() {
-        if let FnArg::Typed(tp) = arg {
-            let h_args = match make_handler_args(tp, i, &module_ident) {
-                Ok(k) => k,
-                Err(e) => return e,
-            };
-            let (arg_name, method_resolve) = match h_args {
-                HandlerArgs::Query(i, ts) => (i, ts),
-                HandlerArgs::Json(i, ts) => (i, ts),
-                HandlerArgs::Path(i, ts) => {
-                    n_args += 1;
-                    has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
-                    (i, ts)
-                }
-                HandlerArgs::Option(i, ts) => (i, ts),
-                HandlerArgs::Module(i, ts) => (i, ts),
-            };
-
-            make_args.push(method_resolve);
-            give_args.push(quote! {#arg_name});
-            i += 1;
-            tp.attrs = Default::default();
-        }
-    }
-
-    if n_args > 1 {
-        return Error::new_spanned(func, "One 1 path type is allowed")
-            .to_compile_error()
-            .into();
-    }
-
     let func_copy = func.clone();
-
-    let fn_call = quote! {
-        async fn call<'a>(
-            parts: darpi::RequestParts,
-            body: darpi::Body,
-            (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
-               use darpi::response::Responder;
-               #[allow(unused_imports)]
-               use shaku::HasComponent;
-               #[allow(unused_imports)]
-               use darpi::request::FromQuery;
-
-               #(#make_args )*
-               Ok(async {
-                    Self::#func_name(#(#give_args ,)*).await.respond()
-               }.await)
-        }
-    };
 
     let mut dummy_where = Default::default();
     if !dummy_t.is_empty() {
@@ -241,13 +244,32 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let module_ident = if !module.is_empty() && dummy_t.is_empty() {
         quote! {#module_ident.clone()}
     } else {
-        Default::default()
+        quote! {#module_ident.clone()}
+    };
+
+    let fn_call = quote! {
+        async fn call<'a#dummy_t>(
+            parts: darpi::RequestParts,
+            body: darpi::Body,
+            (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
+               use darpi::response::Responder;
+               #[allow(unused_imports)]
+               use shaku::HasComponent;
+               #[allow(unused_imports)]
+               use darpi::request::FromQuery;
+
+                #(#middleware_req )*
+
+               #(#make_args )*
+               Ok(async {
+                    Self::#func_name(#(#give_args ,)*).await.respond()
+               }.await)
+        }
     };
 
     let fn_expand_call = quote! {
         #[inline]
         async fn expand_call<'a#dummy_t>(parts: darpi::RequestParts, body: darpi::Body, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
-            #(#middleware_req )*
             let rb = Self::call(parts, body, (req_route, req_args), #module_ident).await.unwrap();
             #(#middleware_res )*
             Ok(rb)
@@ -384,6 +406,7 @@ enum HandlerArgs {
     Path(Ident, proc_macro2::TokenStream),
     Option(Ident, proc_macro2::TokenStream),
     Module(Ident, proc_macro2::TokenStream),
+    Middleware(Ident, proc_macro2::TokenStream, u64, Type),
 }
 
 fn make_handler_args(
@@ -440,6 +463,47 @@ fn make_handler_args(
                 let #arg_name: #ttype = #module_ident.resolve();
             };
             return Ok(HandlerArgs::Module(arg_name, method_resolve));
+        }
+
+        if attr_ident == "middleware" {
+            let index: ExprLit = match attr.parse_args() {
+                Ok(el) => el,
+                Err(_) => {
+                    return Err(Error::new(Span::call_site(), format!("missing index"))
+                        .to_compile_error()
+                        .into())
+                }
+            };
+
+            let index = match index.lit {
+                syn::Lit::Int(i) => {
+                    let value = match i.base10_parse::<u64>() {
+                        Ok(k) => k,
+                        Err(_) => {
+                            return Err(Error::new(Span::call_site(), format!("invalid index"))
+                                .to_compile_error()
+                                .into())
+                        }
+                    };
+                    value
+                }
+                _ => {
+                    return Err(Error::new(Span::call_site(), format!("invalid index"))
+                        .to_compile_error()
+                        .into())
+                }
+            };
+
+            let m_arg_ident = format_ident!("m_arg_{}", index);
+            let method_resolve = quote! {
+                let #arg_name: #ttype = #m_arg_ident;
+            };
+            return Ok(HandlerArgs::Middleware(
+                arg_name,
+                method_resolve,
+                index,
+                *ttype.clone(),
+            ));
         }
     }
     Err(Error::new(

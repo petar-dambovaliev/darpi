@@ -195,6 +195,8 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let real_call = format_ident!("call_{}", real_call);
     let empty_call = format_ident!("call_{}", empty_call);
 
+    let output = &func_copy.sig.output;
+
     let p: Path = parse_str(p).unwrap();
 
     let body = body.map_or(Default::default(), |b| {
@@ -209,10 +211,9 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            #visibility async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T> #body) -> Result<(), #err_ident> #fn_call_module_where {
+            #visibility async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T> #body) #output #fn_call_module_where {
                 #(#make_args )*
-                Self::#name(#(#give_args ,)*).await?;
-                Ok(())
+                Self::#name(#(#give_args ,)*).await
             }
             #visibility async fn #empty_call<T>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T>) -> Result<(), #err_ident> #fn_call_module_where {
                 Ok(())

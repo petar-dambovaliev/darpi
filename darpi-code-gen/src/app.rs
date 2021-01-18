@@ -7,13 +7,14 @@ use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use syn::parse::Parse;
 use syn::token::Token;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
     token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprCall, ExprLit, ExprPath,
-    Lit, LitStr, Member,
+    Lit, LitStr, Member, Type,
 };
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
@@ -92,7 +93,9 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             let cloned = mp.value.path.get_ident().cloned();
 
             let fake_ident = format_ident!("global");
-            let middleware = expand_middlewares_impl(&cloned, &fake_ident, middlewares.clone());
+            let map: HashMap<u64, Type> = HashMap::new();
+            let middleware =
+                expand_middlewares_impl(&cloned, &fake_ident, middlewares.clone(), map);
 
             let mut middleware_req = vec![];
             let mut middleware_res = vec![];
