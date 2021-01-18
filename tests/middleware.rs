@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use shaku::module;
 
 #[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<u64, PayloadError> {
+async fn body_size_limit(#[body] b: &Body, #[handler] size: u64) -> Result<u64, PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));

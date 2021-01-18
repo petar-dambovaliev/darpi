@@ -255,7 +255,7 @@ fn make_handler_args(
         }
     }
 
-    if attr_ident == "expect" {
+    if attr_ident == "handler" {
         let res = make_expect(&arg_name, i);
         let t_type = quote! {#ttype};
         return Ok(HandlerArg::Expect(arg_name, t_type, res));
@@ -269,7 +269,11 @@ fn make_handler_args(
 
     Err(Error::new(
         Span::call_site(),
-        format!("unsupported type {}", ttype.to_token_stream().to_string()),
+        format!(
+            "unsupported attribute #[{}] type {}",
+            attr_ident,
+            ttype.to_token_stream().to_string()
+        ),
     )
     .to_compile_error()
     .into())

@@ -26,7 +26,7 @@ pub struct Name {
 // The #[expect] marker is set to values that are provided by the user himself.
 // we can see the u64 being provided at the places where the middleware is used
 #[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<u64, PayloadError> {
+async fn body_size_limit(#[body] b: &Body, #[handler] size: u64) -> Result<u64, PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));

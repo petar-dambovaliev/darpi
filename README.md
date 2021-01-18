@@ -45,10 +45,10 @@ pub struct Name {
 // The Request argument to the macro tells it this middleware is to be executed for a Request
 // as oppose to a Response. It is allowed to receive a shared reference of the request body and
 // it is gotten via the #[body] marker.
-// The #[expect] marker is set to values that are provided by the user himself.
+// The #[handler] marker is set to values that are provided by the user himself.
 // we can see the u64 being provided at the places where the middleware is used
 #[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<u64, PayloadError> {
+async fn body_size_limit(#[body] b: &Body, #[handler] size: u64) -> Result<u64, PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));
@@ -72,7 +72,7 @@ async fn hello_world(#[path] p: Name, #[query] q: Name) -> String {
 }
 
 // the body_size_limit(64) middleware with the value of 64 is passed to the middleware and mapped
-// to #[expect] size: u64. ie handler -> middleware communication
+// to #[handler] size: u64. ie handler -> middleware communication
 // #[body] tells the handler macro that it should decode the request body as json in the struct Name
 // the handler is guarded by the body_size_limit middleware.
 // it will assert that every request for this handler has body size less than 64 bytes
