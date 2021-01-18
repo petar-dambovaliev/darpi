@@ -48,13 +48,13 @@ pub struct Name {
 // The #[expect] marker is set to values that are provided by the user himself.
 // we can see the u64 being provided at the places where the middleware is used
 #[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<(), PayloadError> {
+async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<u64, PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));
         }
     }
-    Ok(())
+    Ok(size)
 }
 
 // #[path] tells the handler macro that it should decode the path arguments "/hello_world/{name}" into Name
@@ -71,16 +71,24 @@ async fn hello_world(#[path] p: Name, #[query] q: Name) -> String {
     format!("{} sends hello to {}", p.name, q.name)
 }
 
+// the body_size_limit(64) middleware with the value of 64 is passed to the middleware and mapped
+// to #[expect] size: u64. ie handler -> middleware communication
 // #[body] tells the handler macro that it should decode the request body as json in the struct Name
 // the handler is guarded by the body_size_limit middleware.
 // it will assert that every request for this handler has body size less than 64 bytes
+// #[middleware(0)] is a way to receive the Ok(u64) value from the body_size_limit middleware's result
+// ie middleware -> handler communication
 #[handler([body_size_limit(64)])]
-async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> String {
-    format!("{} sends hello to {}", p.name, payload.name)
+async fn do_something_else(
+    #[path] p: Name,
+    #[body] payload: Json<Name>,
+    #[middleware(0)] size: u64,
+) -> String {
+    format!("{} sends hello to {} size {}", p.name, payload.name, size)
 }
 
 #[tokio::main]
-async fn main() -> Result<(), darpi::Error> {
+async fn main() -> Result<(), Error> {
     // the `app` macro creates a server and allows the user to call
     // the method `run` and await on that future
     app!({
@@ -110,8 +118,8 @@ async fn main() -> Result<(), darpi::Error> {
             },
         ],
     })
-    .run()
-    .await
+        .run()
+        .await
 }
 
 ```
