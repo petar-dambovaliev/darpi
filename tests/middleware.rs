@@ -1,12 +1,15 @@
 use darpi::{app, handler, Method, Path};
 use darpi_middleware::auth::{
-    authorize, JwtAlgorithmProviderImpl, JwtSecretProviderImpl, TokenExtractorImpl, UserRole,
+    authorize, Algorithm, Error, JwtAlgorithmProviderImpl, JwtAlgorithmProviderImplParameters,
+    JwtSecretProviderImpl, JwtSecretProviderImplParameters, JwtTokenCreator, JwtTokenCreatorImpl,
+    Token, TokenExtractorImpl, UserRole,
 };
 use darpi_middleware::body_size_limit;
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
 use std::fmt;
+use std::sync::Arc;
 
 #[derive(Clone, PartialEq, PartialOrd)]
 pub enum Role {
@@ -39,6 +42,24 @@ impl fmt::Display for Role {
     }
 }
 
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Login {
+    email: String,
+    password: String,
+}
+
+#[handler(Container)]
+async fn login(
+    #[body] data: Json<Login>,
+    #[inject] jwt_tok_creator: Arc<dyn JwtTokenCreator>,
+) -> Result<Token, Error> {
+    //verify user data
+    let admin = Role::Admin; // hardcoded just for testing
+    let uid = "uid"; // hardcoded just for testing
+    let tok = jwt_tok_creator.create(uid, &admin).await?;
+    Ok(tok)
+}
+
 #[derive(Deserialize, Serialize, Debug, Path)]
 pub struct Name {
     name: String,
@@ -56,13 +77,20 @@ async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> Stri
 
 module! {
     Container {
-        components = [JwtAlgorithmProviderImpl, JwtSecretProviderImpl, TokenExtractorImpl],
+        components = [JwtAlgorithmProviderImpl, JwtSecretProviderImpl, TokenExtractorImpl, JwtTokenCreatorImpl],
         providers = [],
     }
 }
 
 fn make_container() -> Container {
-    let module = Container::builder().build();
+    let module = Container::builder()
+        .with_component_parameters::<JwtSecretProviderImpl>(JwtSecretProviderImplParameters {
+            secret: "my secret".to_string(),
+        })
+        .with_component_parameters::<JwtAlgorithmProviderImpl>(JwtAlgorithmProviderImplParameters {
+            algorithm: Algorithm::ES256,
+        })
+        .build();
     module
 }
 
@@ -75,6 +103,13 @@ async fn main() -> Result<(), darpi::Error> {
         // a set of global middleware that will be executed for every handler
         middleware: [body_size_limit(128)],
         bind: [
+            {
+                route: "/login",
+                method: Method::POST,
+                // the POST method allows this handler to have
+                // Json<Name> as an argument
+                handler: login
+            },
             {
                 route: "/hello_world/{name}",
                 method: Method::GET,

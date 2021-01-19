@@ -4,7 +4,7 @@ use darpi::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use darpi::{middleware, Body, RequestParts};
 use darpi_web::response::ResponderError;
 use derive_more::Display;
-use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
+pub use jsonwebtoken::*;
 use serde::{Deserialize, Serialize};
 use shaku::{Component, Interface};
 use std::sync::Arc;
@@ -65,12 +65,6 @@ pub struct JwtSecretProviderImpl {
     secret: String,
 }
 
-impl JwtSecretProviderImpl {
-    pub fn new(secret: String) -> Self {
-        Self { secret }
-    }
-}
-
 #[async_trait]
 impl JwtSecretProvider for JwtSecretProviderImpl {
     async fn secret(&self) -> &str {
@@ -86,19 +80,13 @@ pub trait JwtSecretProvider: Interface {
 #[derive(Component)]
 #[shaku(interface = JwtAlgorithmProvider)]
 pub struct JwtAlgorithmProviderImpl {
-    algo: Algorithm,
-}
-
-impl JwtAlgorithmProviderImpl {
-    pub fn new(algo: Algorithm) -> Self {
-        Self { algo }
-    }
+    algorithm: Algorithm,
 }
 
 #[async_trait]
 impl JwtAlgorithmProvider for JwtAlgorithmProviderImpl {
     async fn algorithm(&self) -> Algorithm {
-        self.algo
+        self.algorithm
     }
 }
 
@@ -185,9 +173,3 @@ pub enum Error {
 }
 
 impl ResponderError for Error {}
-
-#[derive(Serialize, Debug)]
-struct ErrorResponse {
-    message: String,
-    status: String,
-}

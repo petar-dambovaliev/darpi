@@ -112,13 +112,8 @@ impl<'a> Write for ByteWriter<'a> {
 }
 
 impl ResponderError for Infallible {}
-
-/// Return `BadRequest` for `QueryPayloadError`
-// impl ResponseError for QueryPayloadError {
-//     fn status_code(&self) -> StatusCode {
-//         StatusCode::BAD_REQUEST
-//     }
-// }
+impl ResponderError for String {}
+impl ResponderError for &str {}
 
 pub trait ErrResponder<E, B>
 where
