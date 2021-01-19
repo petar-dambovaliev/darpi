@@ -1,18 +1,42 @@
-use darpi::request::PayloadError;
-use darpi::HttpBody;
-use darpi::{app, handler, middleware, Body, Method, Path};
+use darpi::{app, handler, Method, Path};
+use darpi_middleware::auth::{
+    authorize, JwtAlgorithmProviderImpl, JwtSecretProviderImpl, TokenExtractorImpl, UserRole,
+};
+use darpi_middleware::body_size_limit;
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
+use std::fmt;
 
-#[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[handler] size: u64) -> Result<u64, PayloadError> {
-    if let Some(limit) = b.size_hint().upper() {
-        if size < limit {
-            return Err(PayloadError::Size(size, limit));
+#[derive(Clone, PartialEq, PartialOrd)]
+pub enum Role {
+    User,
+    Admin,
+}
+
+impl Role {
+    pub fn from_str(role: &str) -> Role {
+        match role {
+            "Admin" => Role::Admin,
+            _ => Role::User,
         }
     }
-    Ok(size)
+}
+
+impl UserRole for Role {
+    fn is_authorized(&self, other: &str) -> bool {
+        let other = Self::from_str(other);
+        self < &other
+    }
+}
+
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Role::User => write!(f, "User"),
+            Role::Admin => write!(f, "Admin"),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Path)]
@@ -20,23 +44,19 @@ pub struct Name {
     name: String,
 }
 
-#[handler([body_size_limit(64)])]
-async fn do_something(
-    #[path] p: Name,
-    #[body] payload: Json<Name>,
-    #[middleware(0)] size: u64,
-) -> String {
-    format!("{} sends hello to {} size {}", p.name, payload.name, size)
+#[handler(Container, [authorize(Role::Admin)])]
+async fn do_something(#[path] p: Name) -> String {
+    format!("hello to {}", p.name)
 }
 
-#[handler]
+#[handler([body_size_limit(64)])]
 async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> String {
     format!("{} sends hello to {}", p.name, payload.name)
 }
 
 module! {
     Container {
-        components = [],
+        components = [JwtAlgorithmProviderImpl, JwtSecretProviderImpl, TokenExtractorImpl],
         providers = [],
     }
 }
@@ -57,7 +77,7 @@ async fn main() -> Result<(), darpi::Error> {
         bind: [
             {
                 route: "/hello_world/{name}",
-                method: Method::POST,
+                method: Method::GET,
                 // the POST method allows this handler to have
                 // Json<Name> as an argument
                 handler: do_something

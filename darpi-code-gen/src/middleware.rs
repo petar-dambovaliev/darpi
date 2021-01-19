@@ -243,7 +243,7 @@ fn make_handler_args(
     let attr_ident = attr.path.get_ident().unwrap();
 
     if let Type::Reference(rt) = *ttype.clone() {
-        if let Type::Path(tp) = *rt.elem.clone() {
+        if let Type::Path(_) = *rt.elem.clone() {
             if attr_ident == "request_parts" || attr_ident == "response" {
                 let res = quote! {let #arg_name = p;};
                 return Ok(HandlerArg::Permanent(arg_name, res));

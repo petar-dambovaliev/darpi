@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, Expr,
+    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
     ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type,
     TypePath, TypeTuple,
 };
@@ -135,6 +135,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut give_args = vec![];
     let mut i = 0_u32;
     let mut n_args = 0u8;
+    let mut wants_body = false;
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
     let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
@@ -148,7 +149,10 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             };
             let (arg_name, method_resolve) = match h_args {
                 HandlerArgs::Query(i, ts) => (i, ts),
-                HandlerArgs::Json(i, ts) => (i, ts),
+                HandlerArgs::Body(i, ts) => {
+                    wants_body = true;
+                    (i, ts)
+                }
                 HandlerArgs::Path(i, ts) => {
                     n_args += 1;
                     has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
@@ -216,13 +220,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let no_body = format_ident!("{}_{}", NO_BODY_PREFIX, func_name);
     let mut body_checker = proc_macro2::TokenStream::new();
-    let mut wants_body = false;
-
-    func.sig.inputs.iter().for_each(|arg| {
-        if arg.to_token_stream().to_string().contains("Json") {
-            wants_body = true;
-        }
-    });
 
     if !wants_body {
         body_checker = quote! {
@@ -402,7 +399,7 @@ fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream
 
 enum HandlerArgs {
     Query(Ident, proc_macro2::TokenStream),
-    Json(Ident, proc_macro2::TokenStream),
+    Body(Ident, proc_macro2::TokenStream),
     Path(Ident, proc_macro2::TokenStream),
     Option(Ident, proc_macro2::TokenStream),
     Module(Ident, proc_macro2::TokenStream),
@@ -436,7 +433,7 @@ fn make_handler_args(
             if last.ident == "Option" {
                 if let PathArguments::AngleBracketed(ab) = &last.arguments {
                     if let GenericArgument::Type(t) = ab.args.first().unwrap() {
-                        if let Type::Path(tp) = t {
+                        if let Type::Path(_) = t {
                             let res = make_optional_query(&arg_name, last);
                             return Ok(HandlerArgs::Option(arg_name, res));
                         }
@@ -450,7 +447,7 @@ fn make_handler_args(
         //todo return err if there are more than 1 json args
         if attr_ident == "body" {
             let res = make_json_body(&arg_name, &tp);
-            return Ok(HandlerArgs::Json(arg_name, res));
+            return Ok(HandlerArgs::Body(arg_name, res));
         }
         //todo return err if there are more than 1 path args
         if attr_ident == "path" {

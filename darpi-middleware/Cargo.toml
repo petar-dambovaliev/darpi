@@ -11,5 +11,10 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 darpi-web = {path = "../darpi-web" }
 darpi-code-gen = { path = "../darpi-code-gen" }
-hyper = "0.13.9"
 darpi = { path = "../../darpi" }
+serde = { version = "1.0", features = ["derive"] }
+jsonwebtoken = "=7.2"
+chrono = "0.4"
+derive_more = "0.99.11"
+shaku = {version = "0.5.0", features = ["thread_safe"]}
+async-trait = "0.1.42"
