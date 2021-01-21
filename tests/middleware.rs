@@ -4,7 +4,7 @@ use darpi_middleware::auth::{
     JwtSecretProviderImpl, JwtSecretProviderImplParameters, JwtTokenCreator, JwtTokenCreatorImpl,
     Token, TokenExtractorImpl, UserRole,
 };
-use darpi_middleware::{body_size_limit, compression::decompress, compression::Gzip};
+use darpi_middleware::{body_size_limit, compression::decompress};
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
@@ -48,9 +48,9 @@ pub struct Login {
     password: String,
 }
 
-#[handler(Container, [decompress])]
+#[handler(Container)]
 async fn login(
-    #[middleware(0)] data: Vec<u8>,
+    #[body] login_data: Json<Login>,
     #[inject] jwt_tok_creator: Arc<dyn JwtTokenCreator>,
 ) -> Result<Token, Error> {
     //verify user data
@@ -101,7 +101,7 @@ async fn main() -> Result<(), darpi::Error> {
         address: address,
         module: make_container => Container,
         // a set of global middleware that will be executed for every handler
-        middleware: [body_size_limit(128)],
+        middleware: [body_size_limit(128), decompress()],
         bind: [
             {
                 route: "/login",

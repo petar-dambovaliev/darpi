@@ -1,23 +1,18 @@
-use async_compression::futures::bufread::GzipDecoder;
-use async_compression::futures::write::GzipEncoder;
+use async_compression::futures::bufread::{BrotliDecoder, DeflateDecoder, GzipDecoder};
+use async_compression::futures::write::{BrotliEncoder, DeflateEncoder, GzipEncoder};
 use async_trait::async_trait;
+use darpi::body::Bytes;
 use darpi::header::CONTENT_ENCODING;
 use darpi::{middleware, response::ResponderError, Body, RequestParts};
-use darpi_web::request::FromRequestBody;
 use derive_more::Display;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 
 #[middleware(Request)]
-pub async fn decompress<F, T, E>(
+pub async fn decompress(
     #[request_parts] rp: &RequestParts,
-    #[body] b: &mut Body,
-) -> Result<T, Error>
-where
-    F: FromRequestBody<T, E> + 'static,
-    T: serde::de::DeserializeOwned + 'static,
-    E: Into<Error> + ResponderError + 'static,
-{
-    let mut full_body = darpi::body::to_bytes(b)
+    #[body] mut b: &mut Body,
+) -> Result<(), Error> {
+    let mut full_body = darpi::body::to_bytes(&mut b)
         .await
         .map_err(|e| Error::ReadBody(e))?;
 
@@ -26,13 +21,82 @@ where
             .to_str()
             .map_err(|e| Error::InvalidContentEncoding(e.to_string()))?;
 
-        if ce == "gzip" {
-            full_body = Gzip.decode(&full_body).await?.into();
+        let formats: Vec<&str> = ce.split(", ").collect();
+        for f in formats {
+            match f {
+                "gzip" => {
+                    full_body = Gzip.decode(&full_body).await?.into();
+                }
+                "deflate" => {
+                    full_body = Deflate.decode(&full_body).await?.into();
+                }
+                "br" => {
+                    full_body = Brotli.decode(&full_body).await?.into();
+                }
+                _ => {}
+            }
         }
     }
 
-    let t = F::extract(full_body.into()).await.map_err(|e| e.into())?;
-    Ok(t)
+    let new_body: Bytes = full_body.into();
+    *b = Body::from(new_body);
+    Ok(())
+}
+
+pub struct Brotli;
+
+#[async_trait]
+impl Encoder for Brotli {
+    async fn encode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        let x: Vec<u8> = vec![];
+        let mut writer = BrotliEncoder::new(x);
+
+        writer
+            .write_all(bytes)
+            .await
+            .map_err(|e| Error::EncodingIOError(e))?;
+        Ok(writer.into_inner().into())
+    }
+}
+
+#[async_trait]
+impl Decoder for Brotli {
+    async fn decode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut g = BrotliDecoder::new(bytes);
+        let mut x: Vec<u8> = vec![];
+        g.read_to_end(&mut x)
+            .await
+            .map_err(|e| Error::DecodingIOError(e))?;
+        Ok(x)
+    }
+}
+
+pub struct Deflate;
+
+#[async_trait]
+impl Encoder for Deflate {
+    async fn encode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        let x: Vec<u8> = vec![];
+        let mut writer = DeflateEncoder::new(x);
+
+        writer
+            .write_all(bytes)
+            .await
+            .map_err(|e| Error::EncodingIOError(e))?;
+        Ok(writer.into_inner().into())
+    }
+}
+
+#[async_trait]
+impl Decoder for Deflate {
+    async fn decode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut g = DeflateDecoder::new(bytes);
+        let mut x: Vec<u8> = vec![];
+        g.read_to_end(&mut x)
+            .await
+            .map_err(|e| Error::DecodingIOError(e))?;
+        Ok(x)
+    }
 }
 
 pub struct Gzip;

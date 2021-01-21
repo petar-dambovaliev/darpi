@@ -21,7 +21,7 @@ pub struct Name {
 }
 
 #[middleware(Request)]
-async fn body_size_limit(#[body] b: &Body, #[expect] size: u64) -> Result<(), PayloadError> {
+async fn body_size_limit(#[body] b: &mut Body, #[handler] size: u64) -> Result<(), PayloadError> {
     if let Some(limit) = b.size_hint().upper() {
         if size < limit {
             return Err(PayloadError::Size(size, limit));
