@@ -72,13 +72,8 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         .to_token_stream()
         .to_string();
 
-    let mut body: Option<Path> = None;
-
     let (arg_type, gen_args) = match first_arg.as_str() {
-        "Request" => {
-            body = Some(parse_str("Body").unwrap());
-            ("RequestParts", PathArguments::default())
-        }
+        "Request" => ("RequestParts", PathArguments::default()),
         "Response" => {
             let q = quote! {<Body>};
             let args: AngleBracketedGenericArguments = parse(q);
@@ -187,9 +182,18 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         segments: p,
     };
 
+    let mut real_body: Option<Path> = None;
+    let mut empty_body: Option<Path> = None;
+
     let (empty_call, real_call, p) = match first_arg.as_str() {
-        "Request" => ("Response", "Request", "darpi::Response<darpi::Body>"),
-        "Response" => ("Request", "Response", "darpi::RequestParts"),
+        "Request" => {
+            real_body = Some(parse_str("Body").unwrap());
+            ("Response", "Request", "darpi::Response<darpi::Body>")
+        }
+        "Response" => {
+            empty_body = Some(parse_str("Body").unwrap());
+            ("Request", "Response", "darpi::RequestParts")
+        }
         _ => {
             return Error::new_spanned(
                 func,
@@ -210,7 +214,10 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
 
     let p: Path = parse_str(p).unwrap();
 
-    let body = body.map_or(Default::default(), |b| {
+    let real_body = real_body.map_or(Default::default(), |b| {
+        quote! {,b: &mut #b}
+    });
+    let empty_body = empty_body.map_or(Default::default(), |b| {
         quote! {,b: &mut #b}
     });
 
@@ -222,11 +229,11 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &mut #arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #body) #output #fn_call_module_where {
+            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &mut #arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #real_body) #output #fn_call_module_where {
                 #(#make_args )*
                 Self::#name#func_gen_call(#(#give_args ,)*).await
             }
-            #visibility async fn #empty_call<mygenericmodule, #func_gen_params>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule>) -> Result<(), #err_ident> #fn_call_module_where {
+            #visibility async fn #empty_call<mygenericmodule, #func_gen_params>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #empty_body) -> Result<(), #err_ident> #fn_call_module_where {
                 Ok(())
             }
         }

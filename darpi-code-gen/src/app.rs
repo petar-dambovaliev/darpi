@@ -106,7 +106,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 let name = &e.func;
 
                 middleware_req.push(quote! {
-                    if let Err(e) = #name::#h_req(inner_module.clone(), &parts, &mut body).await {
+                    if let Err(e) = #name::#h_req(inner_module.clone(), &mut parts, &mut body).await {
                         return Ok(e);
                     }
                 });
@@ -172,7 +172,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                 let route = r.uri().path().to_string();
                                 let method = r.method().clone();
 
-                                let (parts, mut body) = r.into_parts();
+                                let (mut parts, mut body) = r.into_parts();
 
                                 #(#middleware_req )*
 
@@ -194,11 +194,11 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                     }.await,
                                 };
 
-                                let rb = match handler.0 {
+                                let mut rb = match handler.0 {
                                     #(#routes_match ,)*
                                 };
 
-                                if let Ok(rb) = &rb {
+                                if let Ok(rb) = rb.as_mut() {
                                     #(#middleware_res )*
                                 }
 
@@ -221,6 +221,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             App::new(#address_value)
         }
     };
+    //panic!("{}", tokens.to_string());
     Ok(tokens.into())
 }
 

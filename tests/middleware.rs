@@ -1,13 +1,11 @@
 use darpi::{app, handler, response::Responder, Method, Path};
-use darpi_middleware::auth::{
-    authorize, Algorithm, Error, JwtAlgorithmProviderImpl, JwtAlgorithmProviderImplParameters,
-    JwtSecretProviderImpl, JwtSecretProviderImplParameters, JwtTokenCreator, JwtTokenCreatorImpl,
-    Token, TokenExtractorImpl, UserRole,
-};
-use darpi_middleware::{body_size_limit, compression::decompress};
+use darpi_middleware::auth::*;
+use darpi_middleware::body_size_limit;
+use darpi_middleware::compression::{compress, decompress, Gzip};
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
+use std::convert::Infallible;
 use std::fmt;
 use std::sync::Arc;
 
@@ -48,7 +46,7 @@ pub struct Login {
     password: String,
 }
 
-#[handler(Container)]
+#[handler(Container, [compress(Gzip)])]
 async fn login(
     #[body] login_data: Json<Login>,
     #[inject] jwt_tok_creator: Arc<dyn JwtTokenCreator>,
@@ -82,6 +80,7 @@ module! {
     }
 }
 
+//todo support arguments
 fn make_container() -> Container {
     let module = Container::builder()
         .with_component_parameters::<JwtSecretProviderImpl>(JwtSecretProviderImplParameters {
@@ -101,7 +100,7 @@ async fn main() -> Result<(), darpi::Error> {
         address: address,
         module: make_container => Container,
         // a set of global middleware that will be executed for every handler
-        middleware: [body_size_limit(128), decompress()],
+        middleware: [body_size_limit(128), decompress(), compress(Gzip)],
         bind: [
             {
                 route: "/login",
