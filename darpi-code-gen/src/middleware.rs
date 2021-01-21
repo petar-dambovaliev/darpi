@@ -113,7 +113,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let mut make_args = vec![];
     let mut give_args = vec![];
     let mut i = 0_u32;
-    let fn_call_module_where = quote! { where T: };
+    let fn_call_module_where = quote! { where mygenericmodule: };
     let mut where_segments = vec![];
     let mut fn_call_module_args = vec![];
     let module_ident = format_ident!("{}", MODULE_PREFIX);
@@ -130,7 +130,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                     let cg = format_ident!("T{}", i);
                     fn_call_module_args.push(quote! {#cg: #ttype});
 
-                    (id, ts)
+                    (id.to_token_stream(), ts)
                 }
                 HandlerArg::Module(i, ts) => {
                     if let Type::Path(tp) = *tp.ty.clone() {
@@ -141,7 +141,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                             where_segments.push(quote! {shaku::HasComponent<#args>});
                         }
                     }
-                    (i, ts)
+                    (i.to_token_stream(), ts)
                 }
             };
 
@@ -152,12 +152,23 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         }
     }
 
-    let fn_call_module_where = if !where_segments.is_empty() {
-        quote! {
-            #fn_call_module_where #(#where_segments )+*
-        }
+    let mut func_where = func.sig.generics.where_clause.to_token_stream();
+    let func_gen_params = &func.sig.generics.params;
+    let func_gen_call = if !func_gen_params.is_empty() {
+        quote! {::<F, T, E>}
     } else {
         Default::default()
+    };
+
+    let fn_call_module_where = if !where_segments.is_empty() {
+        if !func_where.is_empty() {
+            func_where = quote! {#func_where ,};
+        }
+        quote! {
+            #func_where #fn_call_module_where #(#where_segments )+*
+        }
+    } else {
+        func_where.to_token_stream()
     };
 
     let func_copy = func.clone();
@@ -200,7 +211,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let p: Path = parse_str(p).unwrap();
 
     let body = body.map_or(Default::default(), |b| {
-        quote! {,b: &#b}
+        quote! {,b: &mut #b}
     });
 
     let visibility = func.vis;
@@ -211,11 +222,11 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            #visibility async fn #real_call<T>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T> #body) #output #fn_call_module_where {
+            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #body) #output #fn_call_module_where {
                 #(#make_args )*
-                Self::#name(#(#give_args ,)*).await
+                Self::#name#func_gen_call(#(#give_args ,)*).await
             }
-            #visibility async fn #empty_call<T>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<T>) -> Result<(), #err_ident> #fn_call_module_where {
+            #visibility async fn #empty_call<mygenericmodule, #func_gen_params>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule>) -> Result<(), #err_ident> #fn_call_module_where {
                 Ok(())
             }
         }
@@ -227,7 +238,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
 enum HandlerArg {
     Expect(Ident, proc_macro2::TokenStream, proc_macro2::TokenStream),
     Module(Ident, proc_macro2::TokenStream),
-    Permanent(Ident, proc_macro2::TokenStream),
+    Permanent(proc_macro2::TokenStream, proc_macro2::TokenStream),
 }
 
 fn make_handler_args(
@@ -246,11 +257,15 @@ fn make_handler_args(
         if let Type::Path(_) = *rt.elem.clone() {
             if attr_ident == "request_parts" || attr_ident == "response" {
                 let res = quote! {let #arg_name = p;};
-                return Ok(HandlerArg::Permanent(arg_name, res));
+                return Ok(HandlerArg::Permanent(arg_name.to_token_stream(), res));
             }
             if attr_ident == "body" {
-                let res = quote! {let #arg_name = b;};
-                return Ok(HandlerArg::Permanent(arg_name, res));
+                if rt.mutability.is_none() {
+                    panic!("only mutable reference allowed")
+                }
+                let res = quote! {let mut #arg_name = b;};
+                let tt = quote! {&mut #arg_name};
+                return Ok(HandlerArg::Permanent(tt, res));
             }
         }
     }

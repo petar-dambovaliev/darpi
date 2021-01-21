@@ -1,10 +1,10 @@
-use darpi::{app, handler, Method, Path};
+use darpi::{app, handler, response::Responder, Method, Path};
 use darpi_middleware::auth::{
     authorize, Algorithm, Error, JwtAlgorithmProviderImpl, JwtAlgorithmProviderImplParameters,
     JwtSecretProviderImpl, JwtSecretProviderImplParameters, JwtTokenCreator, JwtTokenCreatorImpl,
     Token, TokenExtractorImpl, UserRole,
 };
-use darpi_middleware::body_size_limit;
+use darpi_middleware::{body_size_limit, compression::decompress, compression::Gzip};
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
@@ -48,14 +48,14 @@ pub struct Login {
     password: String,
 }
 
-#[handler(Container)]
+#[handler(Container, [decompress])]
 async fn login(
-    #[body] data: Json<Login>,
+    #[middleware(0)] data: Vec<u8>,
     #[inject] jwt_tok_creator: Arc<dyn JwtTokenCreator>,
 ) -> Result<Token, Error> {
     //verify user data
-    let admin = Role::Admin; // hardcoded just for testing
-    let uid = "uid"; // hardcoded just for testing
+    let admin = Role::Admin; // hardcoded just for the example
+    let uid = "uid"; // hardcoded just for the example
     let tok = jwt_tok_creator.create(uid, &admin).await?;
     Ok(tok)
 }
@@ -71,7 +71,7 @@ async fn do_something(#[path] p: Name) -> String {
 }
 
 #[handler([body_size_limit(64)])]
-async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> String {
+async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> impl Responder {
     format!("{} sends hello to {}", p.name, payload.name)
 }
 

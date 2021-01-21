@@ -18,3 +18,5 @@ chrono = "0.4"
 derive_more = "0.99.11"
 shaku = {version = "0.5.0", features = ["thread_safe"]}
 async-trait = "0.1.42"
+async-compression = {version = "0.3.7", features = ["all", "futures-io"]}
+futures-util = "0.3.8"

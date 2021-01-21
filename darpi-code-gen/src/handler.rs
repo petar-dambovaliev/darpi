@@ -88,15 +88,15 @@ pub(crate) fn expand_middlewares_impl(
             #[async_trait::async_trait]
             #[allow(non_camel_case_types, missing_docs)]
             trait #dummy_trait {
-                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause;
+                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause;
                 async fn #handler_name_response #dummy_gen (#def_c r: &darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
             }
             #[async_trait::async_trait]
             #[allow(non_camel_case_types, missing_docs)]
             impl #dummy_trait for #name {
-                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, b: &darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause{
+                async fn #handler_name_request #dummy_gen (#def_c p: &darpi::RequestParts, mut b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause{
                     use darpi::response::ResponderError;
-                    let concrete = #name::call_Request(p, #(#args ,)*  #give_c, b).await;
+                    let concrete = #name::call_Request(p, #(#args ,)*  #give_c, &mut b).await;
 
                     match concrete {
                         #ok,
@@ -195,7 +195,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                 let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
                 middleware_req.push(quote! {
-                    let #m_arg_ident = match #name::#h_req(#module_ident.clone(), &parts, &body).await {
+                    let #m_arg_ident = match #name::#h_req(#module_ident.clone(), &parts, &mut body).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e),
                     };
@@ -247,7 +247,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let fn_call = quote! {
         async fn call<'a#dummy_t>(
             parts: darpi::RequestParts,
-            body: darpi::Body,
+            mut body: darpi::Body,
             (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
                use darpi::response::Responder;
                #[allow(unused_imports)]

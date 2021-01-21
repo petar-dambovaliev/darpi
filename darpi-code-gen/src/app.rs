@@ -106,7 +106,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 let name = &e.func;
 
                 middleware_req.push(quote! {
-                    if let Err(e) = #name::#h_req(inner_module.clone(), &parts, &body).await {
+                    if let Err(e) = #name::#h_req(inner_module.clone(), &parts, &mut body).await {
                         return Ok(e);
                     }
                 });
@@ -172,7 +172,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                 let route = r.uri().path().to_string();
                                 let method = r.method().clone();
 
-                                let (parts, body) = r.into_parts();
+                                let (parts, mut body) = r.into_parts();
 
                                 #(#middleware_req )*
 
