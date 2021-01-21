@@ -3,9 +3,24 @@ use async_compression::futures::write::{BrotliEncoder, DeflateEncoder, GzipEncod
 use async_trait::async_trait;
 use darpi::body::Bytes;
 use darpi::header::CONTENT_ENCODING;
-use darpi::{middleware, response::ResponderError, Body, RequestParts};
+use darpi::{middleware, response::ResponderError, Body, RequestParts, Response};
 use derive_more::Display;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
+
+#[middleware(Response)]
+pub async fn compress(
+    #[handler] encoder: impl Encoder,
+    #[response] r: &mut Response<Body>,
+) -> Result<(), Error> {
+    let mut b = r.body_mut();
+    let mut full_body = darpi::body::to_bytes(&mut b)
+        .await
+        .map_err(|e| Error::ReadBody(e))?;
+
+    let encoded = encoder.encode(&mut full_body).await?;
+    *b = Body::from(encoded);
+    Ok(())
+}
 
 #[middleware(Request)]
 pub async fn decompress(

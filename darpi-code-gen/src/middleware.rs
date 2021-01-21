@@ -222,7 +222,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &#arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #body) #output #fn_call_module_where {
+            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &mut #arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #body) #output #fn_call_module_where {
                 #(#make_args )*
                 Self::#name#func_gen_call(#(#give_args ,)*).await
             }
@@ -255,15 +255,17 @@ fn make_handler_args(
 
     if let Type::Reference(rt) = *ttype.clone() {
         if let Type::Path(_) = *rt.elem.clone() {
-            if attr_ident == "request_parts" || attr_ident == "response" {
+            if attr_ident == "request_parts" {
                 let res = quote! {let #arg_name = p;};
                 return Ok(HandlerArg::Permanent(arg_name.to_token_stream(), res));
             }
             if attr_ident == "body" {
-                if rt.mutability.is_none() {
-                    panic!("only mutable reference allowed")
-                }
                 let res = quote! {let mut #arg_name = b;};
+                let tt = quote! {&mut #arg_name};
+                return Ok(HandlerArg::Permanent(tt, res));
+            }
+            if attr_ident == "response" {
+                let res = quote! {let mut #arg_name = p;};
                 let tt = quote! {&mut #arg_name};
                 return Ok(HandlerArg::Permanent(tt, res));
             }
