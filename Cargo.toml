@@ -38,3 +38,4 @@ futures-util = "0.3.8"
 derive_more = "0.99.11"
 async-trait = "0.1.42"
 darpi-middleware = { path = "./darpi-middleware" }
+darpi-headers = { path = "./darpi-headers" }

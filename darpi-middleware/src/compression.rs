@@ -1,7 +1,6 @@
 use async_compression::futures::bufread::{BrotliDecoder, DeflateDecoder, GzipDecoder};
 use async_compression::futures::write::{BrotliEncoder, DeflateEncoder, GzipEncoder};
 use async_trait::async_trait;
-use darpi::body::Bytes;
 use darpi::header::{ToStrError, CONTENT_ENCODING};
 use darpi::hyper::http::HeaderValue;
 use darpi::{middleware, response::ResponderError, Body, RequestParts, Response, StatusCode};

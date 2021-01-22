@@ -1,7 +1,8 @@
 use darpi::{app, handler, response::Responder, Method, Path};
+use darpi_headers::EncodingType::{Br, Deflate, Gzip};
 use darpi_middleware::auth::*;
 use darpi_middleware::body_size_limit;
-use darpi_middleware::compression::{compress, decompress, Deflate, Gzip};
+use darpi_middleware::compression::{compress, decompress};
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
@@ -45,7 +46,7 @@ pub struct Login {
     password: String,
 }
 
-#[handler(Container, [compress(Gzip)])]
+#[handler(Container, [compress(&[Gzip, Deflate, Br])])]
 async fn login(
     #[body] login_data: Json<Login>,
     #[inject] jwt_tok_creator: Arc<dyn JwtTokenCreator>,
@@ -67,7 +68,7 @@ async fn do_something(#[path] p: Name) -> String {
     format!("hello to {}", p.name)
 }
 
-#[handler([body_size_limit(64), compress(Deflate)])]
+#[handler([body_size_limit(64), compress(&[Deflate])])]
 async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> impl Responder {
     format!("{} sends hello to {}", p.name, payload.name)
 }
@@ -99,7 +100,7 @@ async fn main() -> Result<(), darpi::Error> {
         address: address,
         module: make_container => Container,
         // a set of global middleware that will be executed for every handler
-        middleware: [body_size_limit(128), decompress(), compress(Gzip)],
+        middleware: [body_size_limit(128), decompress(), compress(&[Gzip])],
         bind: [
             {
                 route: "/login",
