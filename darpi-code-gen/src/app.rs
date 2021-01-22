@@ -274,6 +274,7 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
             t_name = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, variant_value);
         }
 
+        //todo fix use the handler path
         //route_arg_assert_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
         // route_arg_assert.push(quote! {
         //     #f_name::<#variant_value>();
@@ -282,10 +283,10 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
         if method_name.ident == "GET" {
             let f_name = format_ident!("assert_no_body_{}", variant_value);
             let t_name = format_ident!("{}_{}", NO_BODY_PREFIX, variant_value);
-            body_assert_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
-            body_assert.push(quote! {
-                #f_name::<#variant_value>();
-            });
+            // body_assert_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
+            // body_assert.push(quote! {
+            //     #f_name::<#variant_value>();
+            // });
         }
 
         is.push(quote! {
