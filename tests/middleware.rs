@@ -64,7 +64,7 @@ pub struct Name {
 }
 
 #[handler(Container, [authorize(Role::Admin)])]
-async fn do_something(#[path] p: Name) -> String {
+async fn do_something(#[path] p: Name, #[middleware(0)] token: Token) -> String {
     format!("hello to {}", p.name)
 }
 
