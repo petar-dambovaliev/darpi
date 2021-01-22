@@ -245,7 +245,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     };
 
     let fn_call = quote! {
-        async fn call<'a#dummy_t>(
+        pub(crate) async fn call<'a#dummy_t>(
             mut parts: darpi::RequestParts,
             mut body: darpi::Body,
             (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
@@ -266,7 +266,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let fn_expand_call = quote! {
         #[inline]
-        async fn expand_call<'a#dummy_t>(parts: darpi::RequestParts, body: darpi::Body, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
+        pub(crate) async fn expand_call<'a#dummy_t>(parts: darpi::RequestParts, body: darpi::Body, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
             let mut rb = Self::call(parts, body, (req_route, req_args), #module_ident).await.unwrap();
             #(#middleware_res )*
             Ok(rb)
