@@ -2,14 +2,17 @@ use async_compression::futures::bufread::{BrotliDecoder, DeflateDecoder, GzipDec
 use async_compression::futures::write::{BrotliEncoder, DeflateEncoder, GzipEncoder};
 use async_trait::async_trait;
 use darpi::body::Bytes;
-use darpi::header::CONTENT_ENCODING;
-use darpi::{middleware, response::ResponderError, Body, RequestParts, Response};
+use darpi::header::{ToStrError, CONTENT_ENCODING};
+use darpi::hyper::http::HeaderValue;
+use darpi::{middleware, response::ResponderError, Body, RequestParts, Response, StatusCode};
+use darpi_headers::{ContentEncoding, EncodingType, Error as ContentEncodingError};
 use derive_more::Display;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
+use std::convert::TryFrom;
 
 #[middleware(Response)]
 pub async fn compress(
-    #[handler] encoder: impl Encoder,
+    #[handler] types: &[EncodingType],
     #[response] r: &mut Response<Body>,
 ) -> Result<(), Error> {
     let mut b = r.body_mut();
@@ -17,8 +20,39 @@ pub async fn compress(
         .await
         .map_err(|e| Error::ReadBody(e))?;
 
-    let encoded = encoder.encode(&mut full_body).await?;
-    *b = Body::from(encoded);
+    let mut encoding =
+        ContentEncoding::try_from(None).map_err(|e| Error::InvalidContentEncoding(e))?;
+
+    for t in types {
+        match t {
+            EncodingType::Gzip => {
+                full_body = Gzip.encode(&full_body).await?.into();
+                encoding.append(Gzip.encoding_type());
+            }
+            EncodingType::Deflate => {
+                full_body = Deflate.encode(&full_body).await?.into();
+                encoding.append(Deflate.encoding_type());
+            }
+            EncodingType::Br => {
+                full_body = Brotli.encode(&full_body).await?.into();
+                encoding.append(Brotli.encoding_type());
+            }
+            _ => return Err(Error::UnsupportedContentEncoding(*t)),
+        };
+    }
+
+    *b = Body::from(full_body);
+
+    if let Some(hv) = r.headers_mut().get_mut(CONTENT_ENCODING) {
+        let mut original = ContentEncoding::try_from(Some(&mut *hv))
+            .map_err(|e| Error::InvalidContentEncoding(e))?;
+        original.merge(encoding);
+        *hv = original.into();
+    } else {
+        let hv: HeaderValue = encoding.into();
+        r.headers_mut().insert(CONTENT_ENCODING, hv);
+    }
+
     Ok(())
 }
 
@@ -32,29 +66,25 @@ pub async fn decompress(
         .map_err(|e| Error::ReadBody(e))?;
 
     if let Some(ce) = rp.headers.get(CONTENT_ENCODING) {
-        let ce = ce
-            .to_str()
-            .map_err(|e| Error::InvalidContentEncoding(e.to_string()))?;
-
-        let formats: Vec<&str> = ce.split(", ").collect();
-        for f in formats {
-            match f {
-                "gzip" => {
+        let encodings =
+            ContentEncoding::try_from(&*ce).map_err(|e| Error::InvalidContentEncoding(e))?;
+        for et in encodings.into_iter() {
+            match et {
+                EncodingType::Gzip => {
                     full_body = Gzip.decode(&full_body).await?.into();
                 }
-                "deflate" => {
+                EncodingType::Deflate => {
                     full_body = Deflate.decode(&full_body).await?.into();
                 }
-                "br" => {
+                EncodingType::Br => {
                     full_body = Brotli.decode(&full_body).await?.into();
                 }
-                _ => {}
+                _ => return Err(Error::UnsupportedContentEncoding(et)),
             }
         }
     }
 
-    let new_body: Bytes = full_body.into();
-    *b = Body::from(new_body);
+    *b = Body::from(full_body);
     Ok(())
 }
 
@@ -62,6 +92,9 @@ pub struct Brotli;
 
 #[async_trait]
 impl Encoder for Brotli {
+    fn encoding_type(&self) -> EncodingType {
+        EncodingType::Br
+    }
     async fn encode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
         let x: Vec<u8> = vec![];
         let mut writer = BrotliEncoder::new(x);
@@ -90,6 +123,9 @@ pub struct Deflate;
 
 #[async_trait]
 impl Encoder for Deflate {
+    fn encoding_type(&self) -> EncodingType {
+        EncodingType::Deflate
+    }
     async fn encode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
         let x: Vec<u8> = vec![];
         let mut writer = DeflateEncoder::new(x);
@@ -118,6 +154,9 @@ pub struct Gzip;
 
 #[async_trait]
 impl Encoder for Gzip {
+    fn encoding_type(&self) -> EncodingType {
+        EncodingType::Gzip
+    }
     async fn encode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error> {
         let x: Vec<u8> = vec![];
         let mut writer = GzipEncoder::new(x);
@@ -144,6 +183,7 @@ impl Decoder for Gzip {
 
 #[async_trait]
 pub trait Encoder {
+    fn encoding_type(&self) -> EncodingType;
     async fn encode(&self, bytes: &[u8]) -> Result<Vec<u8>, Error>;
 }
 
@@ -161,7 +201,13 @@ pub enum Error {
     #[display(fmt = "read body error {}", _0)]
     ReadBody(darpi::hyper::Error),
     #[display(fmt = "invalid content encoding error {}", _0)]
-    InvalidContentEncoding(String),
+    InvalidContentEncoding(ContentEncodingError),
+    ToStrError(ToStrError),
+    UnsupportedContentEncoding(EncodingType),
 }
 
-impl ResponderError for Error {}
+impl ResponderError for Error {
+    fn status_code(&self) -> StatusCode {
+        StatusCode::UNSUPPORTED_MEDIA_TYPE
+    }
+}

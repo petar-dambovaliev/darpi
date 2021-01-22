@@ -1,11 +1,10 @@
 use darpi::{app, handler, response::Responder, Method, Path};
 use darpi_middleware::auth::*;
 use darpi_middleware::body_size_limit;
-use darpi_middleware::compression::{compress, decompress, Gzip};
+use darpi_middleware::compression::{compress, decompress, Deflate, Gzip};
 use darpi_web::Json;
 use serde::{Deserialize, Serialize};
 use shaku::module;
-use std::convert::Infallible;
 use std::fmt;
 use std::sync::Arc;
 
@@ -68,7 +67,7 @@ async fn do_something(#[path] p: Name) -> String {
     format!("hello to {}", p.name)
 }
 
-#[handler([body_size_limit(64)])]
+#[handler([body_size_limit(64), compress(Deflate)])]
 async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> impl Responder {
     format!("{} sends hello to {}", p.name, payload.name)
 }

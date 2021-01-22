@@ -14,7 +14,8 @@ members = [
     "darpi-code-gen",
     "darpi-web",
     "darpi-route",
-    "darpi-middleware"
+    "darpi-middleware",
+    "darpi-headers"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

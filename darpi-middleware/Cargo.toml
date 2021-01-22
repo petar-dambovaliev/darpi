@@ -9,9 +9,7 @@ license = "MIT OR Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-darpi-web = {path = "../darpi-web" }
-darpi-code-gen = { path = "../darpi-code-gen" }
-darpi = { path = "../../darpi" }
+darpi = {path = "../../darpi" }
 serde = { version = "1.0", features = ["derive"] }
 jsonwebtoken = "=7.2"
 chrono = "0.4"
@@ -20,3 +18,4 @@ shaku = {version = "0.5.0", features = ["thread_safe"]}
 async-trait = "0.1.42"
 async-compression = {version = "0.3.7", features = ["all", "futures-io"]}
 futures-util = "0.3.8"
+darpi-headers = {path = "../darpi-headers"}
