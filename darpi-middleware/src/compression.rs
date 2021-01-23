@@ -14,6 +14,31 @@ use std::convert::TryFrom;
 /// the priority of the middleware user will be matched against the client's Accept-Encoding header
 /// the match with the highest client weight will be the chosen compression algorithm
 /// if non is found, it will result in a noop
+/// in this example, we can all requests to all handlers will be compressed with gzip
+///  if the client supports it
+///```rust
+/// #[tokio::test]
+/// async fn main() -> Result<(), darpi::Error> {
+///     let address = format!("127.0.0.1:{}", 3000);
+///     app!({
+///         address: address,
+///         module: make_container => Container,
+///         // a set of global middleware that will be executed for every handler
+///         middleware: [compress(&[Gzip])],
+///         bind: [
+///             {
+///                 route: "/login",
+///                 method: Method::POST,
+///                 // the POST method allows this handler to have
+///                 // Json<Name> as an argument
+///                 handler: login
+///             },
+///         ],
+///     })
+///    .run()
+///    .await
+/// }
+/// ```
 #[middleware(Response)]
 pub async fn compress(
     #[handler] encoding_types: &[EncodingType],
@@ -71,6 +96,31 @@ pub async fn compress(
 /// this middleware will decompress multiple compressions
 /// it supports [Gzip, Deflate, Br, Identity, Auto] and any other compression
 /// will result in an error response with StatusCode::UNSUPPORTED_MEDIA_TYPE
+/// in this example, all requests to all handlers will be decompressed before
+/// the handler gets invoked
+///```rust
+/// #[tokio::test]
+/// async fn main() -> Result<(), darpi::Error> {
+///     let address = format!("127.0.0.1:{}", 3000);
+///     app!({
+///         address: address,
+///         module: make_container => Container,
+///         // a set of global middleware that will be executed for every handler
+///         middleware: [decompress()],
+///         bind: [
+///             {
+///                 route: "/login",
+///                 method: Method::POST,
+///                 // the POST method allows this handler to have
+///                 // Json<Name> as an argument
+///                 handler: login
+///             },
+///         ],
+///     })
+///    .run()
+///    .await
+/// }
+/// ```
 #[middleware(Request)]
 pub async fn decompress(
     #[request_parts] rp: &RequestParts,
