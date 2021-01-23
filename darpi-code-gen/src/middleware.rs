@@ -150,7 +150,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let mut func_where = func.sig.generics.where_clause.to_token_stream();
     let func_gen_params = &func.sig.generics.params;
     let func_gen_call = if !func_gen_params.is_empty() {
-        quote! {::<F, T, E>}
+        quote! {::<#func_gen_params>}
     } else {
         Default::default()
     };

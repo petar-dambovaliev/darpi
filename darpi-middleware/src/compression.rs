@@ -9,11 +9,11 @@ use derive_more::Display;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use std::convert::TryFrom;
 
-// encoding_types is a slice reference provided by the user of the middleware
-// the order of the elements establishes their priority
-// the priority of the middleware user will be matched against the client's Accept-Encoding header
-// the match with the highest client weight will be the chosen compression algorithm
-// if non is found, it will result in a noop
+/// encoding_types is a slice reference provided by the user of the middleware
+/// the order of the elements establishes their priority
+/// the priority of the middleware user will be matched against the client's Accept-Encoding header
+/// the match with the highest client weight will be the chosen compression algorithm
+/// if non is found, it will result in a noop
 #[middleware(Response)]
 pub async fn compress(
     #[handler] encoding_types: &[EncodingType],
@@ -69,7 +69,7 @@ pub async fn compress(
 }
 
 /// this middleware will decompress multiple compressions
-/// it supports [Gzip, Deflate, Br] and any other compression
+/// it supports [Gzip, Deflate, Br, Identity, Auto] and any other compression
 /// will result in an error response with StatusCode::UNSUPPORTED_MEDIA_TYPE
 #[middleware(Request)]
 pub async fn decompress(
@@ -94,6 +94,7 @@ pub async fn decompress(
                 EncodingType::Br => {
                     full_body = Brotli.decode(&full_body).await?.into();
                 }
+                EncodingType::Identity | EncodingType::Auto => {}
                 _ => return Err(Error::UnsupportedContentEncoding(et)),
             }
         }

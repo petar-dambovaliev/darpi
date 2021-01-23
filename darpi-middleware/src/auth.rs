@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use darpi::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION},
     middleware,
@@ -14,6 +14,28 @@ use std::sync::Arc;
 
 pub type Token = String;
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Claims {
+    sub: String,
+    role: String,
+    exp: usize,
+}
+
+impl Claims {
+    pub fn role(&self) -> &str {
+        &self.role
+    }
+}
+
+/// authorize provides users the ability to control access to certain or all routes
+/// Simply pass it along in the handler macro and provide the #[handler] argument
+///  `T: UserRole`
+///```rust
+/// #[handler(Container, [authorize(Role::Admin)])]
+/// async fn do_something() -> String {
+///     format!("do something")
+/// }
+///```
 #[middleware(Request)]
 pub async fn authorize(
     #[handler] role: impl UserRole,
@@ -21,7 +43,7 @@ pub async fn authorize(
     #[inject] algo_provider: Arc<dyn JwtAlgorithmProvider>,
     #[inject] token_ext: Arc<dyn TokenExtractor>,
     #[inject] secret_provider: Arc<dyn JwtSecretProvider>,
-) -> Result<Token, Error> {
+) -> Result<Claims, Error> {
     let token_res = token_ext.extract(&rp).await;
     match token_res {
         Ok(jwt) => {
@@ -32,20 +54,23 @@ pub async fn authorize(
             )
             .map_err(|_| Error::JWTTokenError)?;
 
-            if !role.is_authorized(&decoded.claims.role) {
+            if !role.is_authorized(&decoded.claims) {
                 return Err(Error::NoPermissionError);
             }
 
-            Ok(decoded.claims.sub)
+            Ok(decoded.claims)
         }
         Err(e) => return Err(e),
     }
 }
 
 pub trait UserRole: ToString + 'static + Sync + Send {
-    fn is_authorized(&self, other: &str) -> bool;
+    fn is_authorized(&self, claims: &Claims) -> bool;
 }
 
+/// This type extracts the jwt token from the request header
+/// It is a default implementation of `TokenExtractor` and users can choose to
+/// implement their own
 #[derive(Component)]
 #[shaku(interface = TokenExtractor)]
 pub struct TokenExtractorImpl;
@@ -98,13 +123,6 @@ pub trait JwtAlgorithmProvider: Interface {
     async fn algorithm(&self) -> Algorithm;
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-struct Claims {
-    sub: String,
-    role: String,
-    exp: usize,
-}
-
 #[derive(Component)]
 #[shaku(interface = JwtTokenCreator)]
 pub struct JwtTokenCreatorImpl {
@@ -116,9 +134,14 @@ pub struct JwtTokenCreatorImpl {
 
 #[async_trait]
 impl JwtTokenCreator for JwtTokenCreatorImpl {
-    async fn create(&self, uid: &str, role: &dyn UserRole) -> Result<Token, Error> {
+    async fn create(
+        &self,
+        uid: &str,
+        role: &dyn UserRole,
+        valid_for: Duration,
+    ) -> Result<Token, Error> {
         let expiration = Utc::now()
-            .checked_add_signed(chrono::Duration::seconds(60))
+            .checked_add_signed(valid_for)
             .expect("valid timestamp")
             .timestamp();
 
@@ -139,7 +162,12 @@ impl JwtTokenCreator for JwtTokenCreatorImpl {
 
 #[async_trait]
 pub trait JwtTokenCreator: Interface {
-    async fn create(&self, uid: &str, role: &dyn UserRole) -> Result<Token, Error>;
+    async fn create(
+        &self,
+        uid: &str,
+        role: &dyn UserRole,
+        valid_for: Duration,
+    ) -> Result<Token, Error>;
 }
 
 const BEARER: &str = "Bearer ";

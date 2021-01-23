@@ -1,3 +1,4 @@
+use chrono;
 use darpi::{app, handler, response::Responder, Method, Path};
 use darpi_headers::EncodingType::{Br, Deflate, Gzip};
 use darpi_middleware::auth::*;
@@ -25,8 +26,8 @@ impl Role {
 }
 
 impl UserRole for Role {
-    fn is_authorized(&self, other: &str) -> bool {
-        let other = Self::from_str(other);
+    fn is_authorized(&self, claims: &Claims) -> bool {
+        let other = Self::from_str(claims.role());
         self < &other
     }
 }
@@ -46,7 +47,7 @@ pub struct Login {
     password: String,
 }
 
-#[handler(Container, [compress(&[Gzip, Deflate, Br])])]
+#[handler(Container)]
 async fn login(
     #[body] login_data: Json<Login>,
     #[inject] jwt_tok_creator: Arc<dyn JwtTokenCreator>,
@@ -54,7 +55,9 @@ async fn login(
     //verify user data
     let admin = Role::Admin; // hardcoded just for the example
     let uid = "uid"; // hardcoded just for the example
-    let tok = jwt_tok_creator.create(uid, &admin).await?;
+    let tok = jwt_tok_creator
+        .create(uid, &admin, chrono::Duration::minutes(60))
+        .await?;
     Ok(tok)
 }
 
@@ -64,11 +67,11 @@ pub struct Name {
 }
 
 #[handler(Container, [authorize(Role::Admin)])]
-async fn do_something(#[path] p: Name, #[middleware(0)] token: Token) -> String {
-    format!("hello to {}", p.name)
+async fn do_something() -> String {
+    format!("do something")
 }
 
-#[handler([body_size_limit(64), compress(&[Deflate])])]
+#[handler([body_size_limit(64)])]
 async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> impl Responder {
     format!("{} sends hello to {}", p.name, payload.name)
 }
