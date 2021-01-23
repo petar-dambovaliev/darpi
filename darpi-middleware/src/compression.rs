@@ -1,60 +1,76 @@
 use async_compression::futures::bufread::{BrotliDecoder, DeflateDecoder, GzipDecoder};
 use async_compression::futures::write::{BrotliEncoder, DeflateEncoder, GzipEncoder};
 use async_trait::async_trait;
-use darpi::header::{ToStrError, CONTENT_ENCODING};
+use darpi::header::{ToStrError, ACCEPT_ENCODING, CONTENT_ENCODING};
 use darpi::hyper::http::HeaderValue;
 use darpi::{middleware, response::ResponderError, Body, RequestParts, Response, StatusCode};
-use darpi_headers::{ContentEncoding, EncodingType, Error as ContentEncodingError};
+use darpi_headers::{AcceptEncoding, ContentEncoding, EncodingType, Error as ContentEncodingError};
 use derive_more::Display;
 use futures_util::{AsyncReadExt, AsyncWriteExt};
 use std::convert::TryFrom;
 
+// encoding_types is a slice reference provided by the user of the middleware
+// the order of the elements establishes their priority
+// the priority of the middleware user will be matched against the client's Accept-Encoding header
+// the match with the highest client weight will be the chosen compression algorithm
+// if non is found, it will result in a noop
 #[middleware(Response)]
 pub async fn compress(
-    #[handler] types: &[EncodingType],
+    #[handler] encoding_types: &[EncodingType],
     #[response] r: &mut Response<Body>,
 ) -> Result<(), Error> {
+    let matched_encoding = if let Some(val) = r.headers().get(&ACCEPT_ENCODING) {
+        if let Ok(enc) = val.to_str() {
+            let mut matched_types = vec![];
+
+            for et in encoding_types {
+                matched_types.push(AcceptEncoding::parse(enc, *et));
+            }
+            matched_types.sort();
+            matched_types
+                .first()
+                .map_or(EncodingType::Identity, |f| f.encoding)
+        } else {
+            EncodingType::Identity
+        }
+    } else {
+        EncodingType::Identity
+    };
+
     let mut b = r.body_mut();
     let mut full_body = darpi::body::to_bytes(&mut b)
         .await
         .map_err(|e| Error::ReadBody(e))?;
 
-    let mut encoding =
-        ContentEncoding::try_from(None).map_err(|e| Error::InvalidContentEncoding(e))?;
-
-    for t in types {
-        match t {
-            EncodingType::Gzip => {
-                full_body = Gzip.encode(&full_body).await?.into();
-                encoding.append(Gzip.encoding_type());
-            }
-            EncodingType::Deflate => {
-                full_body = Deflate.encode(&full_body).await?.into();
-                encoding.append(Deflate.encoding_type());
-            }
-            EncodingType::Br => {
-                full_body = Brotli.encode(&full_body).await?.into();
-                encoding.append(Brotli.encoding_type());
-            }
-            _ => return Err(Error::UnsupportedContentEncoding(*t)),
-        };
-    }
+    match matched_encoding {
+        EncodingType::Gzip => {
+            full_body = Gzip.encode(&full_body).await?.into();
+        }
+        EncodingType::Deflate => {
+            full_body = Deflate.encode(&full_body).await?.into();
+        }
+        EncodingType::Br => {
+            full_body = Brotli.encode(&full_body).await?.into();
+        }
+        _ => {}
+    };
 
     *b = Body::from(full_body);
 
-    if let Some(hv) = r.headers_mut().get_mut(CONTENT_ENCODING) {
-        let mut original = ContentEncoding::try_from(Some(&mut *hv))
-            .map_err(|e| Error::InvalidContentEncoding(e))?;
-        original.merge(encoding);
-        *hv = original.into();
+    let new_header = HeaderValue::from_str(matched_encoding.into()).expect("not to happen");
+
+    if let Some(hv) = r.headers_mut().get_mut(&CONTENT_ENCODING) {
+        *hv = new_header;
     } else {
-        let hv: HeaderValue = encoding.into();
-        r.headers_mut().insert(CONTENT_ENCODING, hv);
+        r.headers_mut().insert(CONTENT_ENCODING, new_header);
     }
 
     Ok(())
 }
 
+/// this middleware will decompress multiple compressions
+/// it supports [Gzip, Deflate, Br] and any other compression
+/// will result in an error response with StatusCode::UNSUPPORTED_MEDIA_TYPE
 #[middleware(Request)]
 pub async fn decompress(
     #[request_parts] rp: &RequestParts,
@@ -64,7 +80,7 @@ pub async fn decompress(
         .await
         .map_err(|e| Error::ReadBody(e))?;
 
-    if let Some(ce) = rp.headers.get(CONTENT_ENCODING) {
+    if let Some(ce) = rp.headers.get(&CONTENT_ENCODING) {
         let encodings =
             ContentEncoding::try_from(&*ce).map_err(|e| Error::InvalidContentEncoding(e))?;
         for et in encodings.into_iter() {

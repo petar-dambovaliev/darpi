@@ -1,14 +1,18 @@
+mod accept_encoding;
+
+pub use accept_encoding::AcceptEncoding;
+
 use darpi::header::{HeaderValue, ToStrError};
 use derive_more::Display;
 use std::convert::TryFrom;
 
-#[derive(Display, Debug, Copy, Clone)]
+#[derive(Display, Debug, Copy, Clone, PartialEq)]
 pub enum EncodingType {
     Gzip,
     Deflate,
-    Compress,
     Identity,
     Br,
+    Auto,
 }
 
 #[derive(Display, Debug)]
@@ -17,19 +21,27 @@ pub enum Error {
     ToStrError(ToStrError),
 }
 
-impl<'a> TryFrom<&'a str> for EncodingType {
-    type Error = Error;
+impl EncodingType {
+    #[inline]
+    pub fn quality(self) -> f64 {
+        match self {
+            Self::Br => 1.1,
+            Self::Gzip => 1.0,
+            Self::Deflate => 0.9,
+            Self::Identity | Self::Auto => 0.1,
+        }
+    }
+}
 
-    fn try_from(value: &'a str) -> Result<Self, Self::Error> {
-        let v = match value {
+impl<'a> From<&'a str> for EncodingType {
+    fn from(value: &'a str) -> Self {
+        match value {
             "gzip" => Self::Gzip,
             "deflate" => Self::Deflate,
-            "compress" => Self::Compress,
             "identity" => Self::Identity,
             "br" => Self::Br,
-            _ => return Err(Error::UnknownStr(value.to_string())),
-        };
-        Ok(v)
+            _ => Self::Auto,
+        }
     }
 }
 
@@ -38,8 +50,7 @@ impl Into<&str> for EncodingType {
         match self {
             Self::Gzip => "gzip",
             Self::Deflate => "deflate",
-            Self::Compress => "compress",
-            Self::Identity => "identity",
+            Self::Identity | Self::Auto => "identity",
             Self::Br => "br",
         }
     }
@@ -64,7 +75,7 @@ impl Into<HeaderValue> for ContentEncoding {
     fn into(self) -> HeaderValue {
         let types: Vec<&str> = self.encoding_types.into_iter().map(|t| t.into()).collect();
         let types = types.join(", ");
-        HeaderValue::from_str(&format!("Content-Encoding: {}", types)).expect("this cannot happen")
+        HeaderValue::from_str(&types).expect("this cannot happen")
     }
 }
 
@@ -94,7 +105,7 @@ impl TryFrom<Option<&mut HeaderValue>> for ContentEncoding {
 
         let mut encoding_types = vec![];
         for part in parts {
-            let et = EncodingType::try_from(part)?;
+            let et = EncodingType::from(part);
             encoding_types.push(et);
         }
 
@@ -119,7 +130,7 @@ impl TryFrom<&HeaderValue> for ContentEncoding {
 
         let mut encoding_types = vec![];
         for part in parts {
-            let et = EncodingType::try_from(part)?;
+            let et = EncodingType::from(part);
             encoding_types.push(et);
         }
 
