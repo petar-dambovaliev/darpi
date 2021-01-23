@@ -64,6 +64,41 @@ pub async fn authorize(
     }
 }
 
+/// UserRole represents user types within an application
+/// to identify access levels
+///
+/// ```rust
+/// #[derive(Clone, PartialEq, PartialOrd)]
+/// pub enum Role {
+///     User,
+///     Admin,
+/// }
+///
+/// impl Role {
+///     pub fn from_str(role: &str) -> Role {
+///         match role {
+///             "Admin" => Role::Admin,
+///             _ => Role::User,
+///         }
+///     }
+/// }
+///
+/// impl UserRole for Role {
+///     fn is_authorized(&self, claims: &Claims) -> bool {
+///         let other = Self::from_str(claims.role());
+///         self < &other
+///     }
+/// }
+///
+/// impl fmt::Display for Role {
+///     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+///         match self {
+///             Role::User => write!(f, "User"),
+///             Role::Admin => write!(f, "Admin"),
+///         }
+///     }
+/// }
+///```
 pub trait UserRole: ToString + 'static + Sync + Send {
     fn is_authorized(&self, claims: &Claims) -> bool;
 }
