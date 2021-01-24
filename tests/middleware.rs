@@ -1,6 +1,6 @@
 use chrono;
 use darpi::{app, handler, response::Responder, Method, Path};
-use darpi_headers::EncodingType::{Br, Deflate, Gzip};
+use darpi_headers::EncodingType::{Deflate, Gzip};
 use darpi_middleware::auth::*;
 use darpi_middleware::body_size_limit;
 use darpi_middleware::compression::{compress, decompress};

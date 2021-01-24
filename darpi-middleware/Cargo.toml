@@ -19,3 +19,4 @@ async-trait = "0.1.42"
 async-compression = {version = "0.3.7", features = ["all", "futures-io"]}
 futures-util = "0.3.8"
 darpi-headers = {path = "../darpi-headers"}
+log = "0.4.13"

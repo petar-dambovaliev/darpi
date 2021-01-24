@@ -7,6 +7,7 @@ mod middleware;
 mod request;
 
 use proc_macro::TokenStream;
+use syn::{parse, parse_macro_input, ExprLit, ItemStruct};
 
 #[proc_macro_derive(Path)]
 pub fn path(input: TokenStream) -> TokenStream {
@@ -26,6 +27,16 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn middleware(args: TokenStream, input: TokenStream) -> TokenStream {
     middleware::make_middleware(args, input)
+}
+
+#[proc_macro_attribute]
+pub fn req_formatter(args: TokenStream, input: TokenStream) -> TokenStream {
+    let expr_lit: ExprLit = parse(args).unwrap();
+    let item_struct = parse_macro_input!(input as ItemStruct);
+    match logger::make_req_fmt(expr_lit, item_struct) {
+        Ok(r) => r,
+        Err(e) => e.into_compile_error().into(),
+    }
 }
 
 #[proc_macro]

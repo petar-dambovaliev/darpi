@@ -1,7 +1,9 @@
 #![forbid(unsafe_code)]
 
-pub use darpi_code_gen::{app, handler, middleware, Path, Query};
-pub use darpi_web::{logger, request, response, xml::Xml, yaml::Yaml, Json};
+pub use darpi_code_gen::{app, handler, middleware, req_formatter, Path, Query};
+pub use darpi_web::{
+    logger, request, response, xml::Xml, yaml::Yaml, Json, ReqFormatter, RespFormatter,
+};
 
 pub use darpi_route::{ReqRoute, Route};
 pub use futures;

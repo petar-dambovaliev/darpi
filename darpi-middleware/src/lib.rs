@@ -1,7 +1,9 @@
-use darpi::{middleware, request::PayloadError, Body, HttpBody};
+use darpi::{middleware, request::PayloadError, Body, HttpBody, ReqFormatter, RequestParts};
 
 pub mod auth;
 pub mod compression;
+
+use log;
 
 /// this middleware limits the request body size by a user passed argument
 /// the argument `size` indicates number of bytes
@@ -21,3 +23,17 @@ pub async fn body_size_limit(#[body] b: &Body, #[handler] size: u64) -> Result<(
     }
     Ok(())
 }
+
+#[middleware(Request)]
+pub async fn log_request(
+    #[request_parts] rp: &RequestParts,
+    #[body] b: &Body,
+    #[handler] formatter: impl ReqFormatter,
+) -> Result<(), String> {
+    let formatted = formatter.format_req(b, rp);
+    log::info!("{}", formatted);
+    Ok(())
+}
+
+#[middleware(Request)]
+pub async fn returns_nothing() {}

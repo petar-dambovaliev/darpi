@@ -1,4 +1,5 @@
 use crate::handler::MODULE_PREFIX;
+use hyper::error::Kind::Body;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
@@ -211,6 +212,16 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let empty_call = format_ident!("call_{}", empty_call);
 
     let output = &func_copy.sig.output;
+    let mut output_res = output.to_token_stream();
+    let mut resolve_call = quote! {Self::#name#func_gen_call(#(#give_args ,)*).await};
+
+    if let ReturnType::Default = output {
+        output_res = quote! {-> Result<(), String>};
+        resolve_call = quote! {
+            #resolve_call;
+            Ok(())
+        };
+    }
 
     let p: Path = parse_str(p).unwrap();
 
@@ -229,9 +240,9 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         #[allow(non_camel_case_types, missing_docs)]
         impl #name {
             #func_copy
-            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &mut #arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #real_body) #output #fn_call_module_where {
+            #visibility async fn #real_call<mygenericmodule, #func_gen_params>(p: &mut #arg_type_path, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #real_body) #output_res #fn_call_module_where {
                 #(#make_args )*
-                Self::#name#func_gen_call(#(#give_args ,)*).await
+                #resolve_call
             }
             #visibility async fn #empty_call<mygenericmodule, #func_gen_params>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #empty_body) -> Result<(), #err_ident> #fn_call_module_where {
                 Ok(())
