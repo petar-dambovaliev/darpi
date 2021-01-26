@@ -8,7 +8,7 @@ use syn::punctuated::Punctuated;
 use syn::{
     bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, Expr,
     ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type,
-    TypePath, TypeTuple,
+    TypePath,
 };
 
 #[derive(Debug)]
@@ -54,77 +54,6 @@ pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
 pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
 pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
 pub(crate) const MODULE_PREFIX: &str = "module";
-
-pub(crate) fn expand_middlewares_impl(
-    container: &Option<Ident>,
-    handler_name: &Ident,
-    mut p: Punctuated<ExprCall, Comma>,
-    map: HashMap<u64, Type>,
-) -> Vec<proc_macro2::TokenStream> {
-    let mut middleware_impl = vec![];
-    let mut i = 0_u64;
-
-    p.iter_mut().for_each(|e| {
-        let name = &e.func;
-        let handler_name_request = format_ident!("{}_request", handler_name);
-        let handler_name_response = format_ident!("{}_response", handler_name);
-        let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
-            if let Expr::Call(expr_call) = arg {
-                if expr_call.func.to_token_stream().to_string() == "middleware" {
-                    let i_ident = format_ident!("m_arg_{}", expr_call.args.first().unwrap().to_token_stream().to_string());
-                    return quote!{#i_ident};
-                }
-            }
-            quote! {#arg}
-        }).collect();
-
-        let (where_clause, dummy_gen, def_c, give_c) = container.as_ref().map_or((quote!{
-        where
-        T: 'static + Sync + Send,
-        }, quote!{<T>}, quote!{c: std::sync::Arc<T>,}, quote!{c}), |c| (Default::default(), Default::default(), quote!{c: std::sync::Arc<#c>,}, quote!{c}));
-
-        let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
-
-        let (ttype, ok) = match map.get(&i) {
-            Some(t) => (t.clone(), quote!{Ok(t) => Ok(t)}),
-            None => (Type::Tuple(TypeTuple{ paren_token: Default::default(), elems: Default::default() }), quote!{Ok(_) => Ok(())})
-        };
-
-        let q = quote! {
-            #[async_trait::async_trait]
-            #[allow(non_camel_case_types, missing_docs)]
-            trait #dummy_trait {
-                async fn #handler_name_request #dummy_gen (#def_c p: &mut darpi::RequestParts, b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause;
-                async fn #handler_name_response #dummy_gen (#def_c r: &mut darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
-            }
-            #[async_trait::async_trait]
-            #[allow(non_camel_case_types, missing_docs)]
-            impl #dummy_trait for #name {
-                async fn #handler_name_request #dummy_gen (#def_c p: &mut darpi::RequestParts, mut b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause{
-                    use darpi::response::ResponderError;
-                    let concrete = #name::call_Request(p, #(#args ,)*  #give_c, &mut b).await;
-
-                    match concrete {
-                        #ok,
-                        Err(e) => Err(e.respond_err())
-                    }
-                }
-                async fn #handler_name_response #dummy_gen (#def_c r: &mut darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause {
-                    use darpi::response::ResponderError;
-                    let concrete = #name::call_Response(r, #(#args ,)* #give_c).await;
-                    match concrete {
-                        Ok(_) => Ok(()),
-                        Err(e) => Err(e.respond_err())
-                    }
-                }
-            }
-        };
-
-        middleware_impl.push(q);
-        i += 1;
-    });
-    middleware_impl
-}
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(input as ItemFn);
@@ -277,6 +206,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                use shaku::HasComponent;
                #[allow(unused_imports)]
                use darpi::request::FromQuery;
+               use darpi::request::FromRequestBody;
+               use darpi::response::ResponderError;
 
                 #(#middleware_req )*
 
@@ -394,9 +325,6 @@ fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream
     let inner = &path.path.segments.last().unwrap().arguments;
 
     let output = quote! {
-        use darpi::request::FromRequestBody;
-        use darpi::response::ResponderError;
-
         match #format::#inner::assert_content_type(parts.headers.get("content-type")).await {
             Ok(()) => {}
             Err(e) => return Ok(e.respond_err()),
@@ -523,3 +451,74 @@ fn make_handler_args(
     .to_compile_error()
     .into())
 }
+
+// pub(crate) fn expand_middlewares_impl(
+//     container: &Option<Ident>,
+//     handler_name: &Ident,
+//     mut p: Punctuated<ExprCall, Comma>,
+//     map: HashMap<u64, Type>,
+// ) -> Vec<proc_macro2::TokenStream> {
+//     let mut middleware_impl = vec![];
+//     let mut i = 0_u64;
+//
+//     p.iter_mut().for_each(|e| {
+//         let name = &e.func;
+//         let handler_name_request = format_ident!("{}_request", handler_name);
+//         let handler_name_response = format_ident!("{}_response", handler_name);
+//         let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
+//             if let Expr::Call(expr_call) = arg {
+//                 if expr_call.func.to_token_stream().to_string() == "middleware" {
+//                     let i_ident = format_ident!("m_arg_{}", expr_call.args.first().unwrap().to_token_stream().to_string());
+//                     return quote!{#i_ident};
+//                 }
+//             }
+//             quote! {#arg}
+//         }).collect();
+//
+//         let (where_clause, dummy_gen, def_c, give_c) = container.as_ref().map_or((quote!{
+//         where
+//         T: 'static + Sync + Send,
+//         }, quote!{<T>}, quote!{c: std::sync::Arc<T>,}, quote!{c}), |c| (Default::default(), Default::default(), quote!{c: std::sync::Arc<#c>,}, quote!{c}));
+//
+//         let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
+//
+//         let (ttype, ok) = match map.get(&i) {
+//             Some(t) => (t.clone(), quote!{Ok(t) => Ok(t)}),
+//             None => (Type::Tuple(TypeTuple{ paren_token: Default::default(), elems: Default::default() }), quote!{Ok(_) => Ok(())})
+//         };
+//
+//         let q = quote! {
+//             #[async_trait::async_trait]
+//             #[allow(non_camel_case_types, missing_docs)]
+//             trait #dummy_trait {
+//                 async fn #handler_name_request #dummy_gen (#def_c p: &mut darpi::RequestParts, b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause;
+//                 async fn #handler_name_response #dummy_gen (#def_c r: &mut darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
+//             }
+//             #[async_trait::async_trait]
+//             #[allow(non_camel_case_types, missing_docs)]
+//             impl #dummy_trait for #name {
+//                 async fn #handler_name_request #dummy_gen (#def_c p: &mut darpi::RequestParts, mut b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause{
+//                     use darpi::response::ResponderError;
+//                     let concrete = #name::call_Request(p, #(#args ,)*  #give_c, &mut b).await;
+//
+//                     match concrete {
+//                         #ok,
+//                         Err(e) => Err(e.respond_err())
+//                     }
+//                 }
+//                 async fn #handler_name_response #dummy_gen (#def_c r: &mut darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause {
+//                     use darpi::response::ResponderError;
+//                     let concrete = #name::call_Response(r, #(#args ,)* #give_c).await;
+//                     match concrete {
+//                         Ok(_) => Ok(()),
+//                         Err(e) => Err(e.respond_err())
+//                     }
+//                 }
+//             }
+//         };
+//
+//         middleware_impl.push(q);
+//         i += 1;
+//     });
+//     middleware_impl
+// }

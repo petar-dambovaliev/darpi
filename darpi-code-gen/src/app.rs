@@ -1,4 +1,3 @@
-use crate::handler::expand_middlewares_impl;
 use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
 use darpi_route::Route as DefRoute;
 use md5;
@@ -13,8 +12,8 @@ use syn::parse::Parse;
 use syn::token::Token;
 use syn::{
     braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
-    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, ExprCall, ExprLit, ExprPath,
-    Lit, LitStr, Member, Type,
+    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, Expr as SynExpr, ExprCall,
+    ExprLit, ExprPath, Lit, LitStr, Member, Type,
 };
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
@@ -77,7 +76,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         }
     };
 
-    let (module_def, module_let, module_self, middleware_def, middleware_req, middleware_res) =
+    let (module_def, module_let, module_self, mut middleware_req, mut middleware_res) =
         module_path.map_or(Default::default(), |mp| {
             let make_container_func = mp
                 .key
@@ -94,44 +93,65 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
 
             let fake_ident = format_ident!("global");
             let map: HashMap<u64, Type> = HashMap::new();
-            let middleware =
-                expand_middlewares_impl(&cloned, &fake_ident, middlewares.clone(), map);
 
             let mut middleware_req = vec![];
             let mut middleware_res = vec![];
+            let mut i = 0u16;
 
             let h_req = format_ident!("{}_request", fake_ident);
             let h_res = format_ident!("{}_response", fake_ident);
             middlewares.iter().for_each(|e| {
                 let name = &e.func;
+                let m_arg_ident = format_ident!("m_arg_{}", i);
+                let mut sorter = 0_u16;
 
-                middleware_req.push(quote! {
-                    if let Err(e) = #name::#h_req(inner_module.clone(), &mut parts, &mut body).await {
-                        return Ok(e);
+                let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
+                    if let SynExpr::Call(expr_call) = arg {
+                        if expr_call.func.to_token_stream().to_string() == "middleware" {
+                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                            sorter += index;
+                            let i_ident = format_ident!("m_arg_{}", index);
+                            return quote!{#i_ident.clone()};
+                        }
                     }
-                });
+                    quote! {#arg}
+                }).collect();
 
-                middleware_res.push(quote! {
-                    if let Err(e) = #name::#h_res(inner_module.clone(), rb).await {
-                        return Ok(e);
-                    }
-                });
+                middleware_req.push((sorter, quote! {
+                    let #m_arg_ident = match #name::call_Request(&mut parts, #(#m_args ,)* inner_module.clone(), &mut body).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
+
+                middleware_res.push((std::u16::MAX - i - sorter, quote! {
+                    let #m_arg_ident = match #name::call_Response(&mut rb, #(#m_args ,)* inner_module.clone()).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
             });
 
             (
                 quote! {module: std::sync::Arc<#patj>,},
                 quote! {let module = std::sync::Arc::new(#make_container_func());},
                 quote! {module: module,},
-                middleware,
                 middleware_req,
                 middleware_res,
             )
         });
 
+    middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
+    middleware_res.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let middleware_req: Vec<proc_macro2::TokenStream> =
+        middleware_req.into_iter().map(|e| e.1).collect();
+    let middleware_res: Vec<proc_macro2::TokenStream> =
+        middleware_res.into_iter().map(|e| e.1).collect();
+
     let app = quote! {
         #(#body_assert_def )*
         #(#route_arg_assert_def )*
-        #(#middleware_def )*
 
          pub struct App {
             #module_def
@@ -311,7 +331,7 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
 
         routes_match.push(quote! {
             RoutePossibilities::#variant_name => {
-                #variant_value::expand_call(parts, body, handler.1, inner_module.clone()).await
+                #variant_value::call(parts, body, handler.1, inner_module.clone()).await
             }
         });
     });

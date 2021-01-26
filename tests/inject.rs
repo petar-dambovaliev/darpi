@@ -30,9 +30,10 @@ async fn second(#[handler] size: u64) -> Result<u64, PayloadError> {
     Ok(size + 1)
 }
 
-#[handler([first(64), second(middleware(0))])]
-async fn do_something_else(#[path] p: Name, #[body] payload: Json<Name>) -> String {
-    format!("{} sends hello to {}", p.name, payload.name)
+//todo make sure the middleware index is a correct value within bounds of the current element
+#[handler([first(1), second(middleware(0))])]
+async fn do_something_else() -> String {
+    "do something".to_string()
 }
 
 // #[path] tells the handler macro that it should decode the path arguments "/hello_world/{name}" into Name
@@ -63,7 +64,7 @@ async fn main() -> Result<(), Error> {
         module: make_container => Container,
         // a set of global middleware that will be executed for every handler
         // it will assert that every request has a body size less than 128 bytes
-        middleware: [body_size_limit(128)],
+        middleware: [],
         bind: [
             {
                 // When a path argument is defined in the route,
