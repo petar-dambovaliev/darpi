@@ -34,7 +34,7 @@ async fn second(#[handler] size: u64) -> Result<u64, PayloadError> {
 
 //todo make sure the middleware index is a correct value within bounds of the current element
 #[handler([first(1), second(middleware(0))])]
-async fn do_something_else() -> String {
+async fn do_something_else(#[middleware(2)] m: u64) -> String {
     "do something".to_string()
 }
 

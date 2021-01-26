@@ -75,6 +75,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
     let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
     let mut map = HashMap::new();
+    let mut max_middleware_index = None;
 
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
@@ -96,6 +97,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                 HandlerArgs::Option(i, ts) => (i, ts),
                 HandlerArgs::Module(i, ts) => (i, ts),
                 HandlerArgs::Middleware(i, ts, index, ttype) => {
+                    if let Some(s) = max_middleware_index {
+                        if index > s {
+                            max_middleware_index = Some(index);
+                        }
+                    } else {
+                        max_middleware_index = Some(index)
+                    }
                     map.insert(index, ttype);
                     (i, ts)
                 }
@@ -119,26 +127,49 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut middleware_req = vec![];
     let mut middleware_res = vec![];
     let mut i = 0u16;
+    let mut len_middleware = None;
 
     if !args.is_empty() {
         let arguments = parse_macro_input!(args as Arguments);
         if let Some(m) = arguments.middleware {
-            m.iter().for_each(|e| {
+            len_middleware = Some(m.len());
+            for e in &m {
                 let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
                 let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                 let mut sorter = 0_u16;
-                let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
-                    if let Expr::Call(expr_call) = arg {
-                        if expr_call.func.to_token_stream().to_string() == "middleware" {
-                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
-                            sorter += index;
-                            let i_ident = format_ident!("m_arg_{}", index);
-                            return quote!{#i_ident.clone()};
+                let m_args: Vec<proc_macro2::TokenStream> = e
+                    .args
+                    .iter()
+                    .map(|arg| {
+                        if let Expr::Call(expr_call) = arg {
+                            if expr_call.func.to_token_stream().to_string() == "middleware" {
+                                let index: u16 = expr_call
+                                    .args
+                                    .first()
+                                    .unwrap()
+                                    .to_token_stream()
+                                    .to_string()
+                                    .parse()
+                                    .unwrap();
+
+                                if index as usize >= m.len() {
+                                    return Error::new_spanned(
+                                        &func,
+                                        "middleware index out of bounds",
+                                    )
+                                    .to_compile_error()
+                                    .into();
+                                }
+
+                                sorter += index;
+                                let i_ident = format_ident!("m_arg_{}", index);
+                                return quote! {#i_ident.clone()};
+                            }
                         }
-                    }
-                    quote! {#arg}
-                }).collect();
+                        quote! {#arg}
+                    })
+                    .collect();
 
                 middleware_req.push((sorter, quote! {
                     let #m_arg_ident = match #name::call_Request(&mut parts, #(#m_args ,)* #module_ident.clone(), &mut body).await {
@@ -154,12 +185,26 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     };
                 }));
                 i += 1;
-            });
+            }
         }
         if let Some(m) = arguments.module {
             module = quote! {#module_ident: std::sync::Arc<#m>};
             dummy_t = Default::default();
         }
+    }
+
+    match (len_middleware, max_middleware_index) {
+        (Some(l), Some(m)) => {
+            if m >= l as u64 {
+                return Error::new_spanned(
+                    &func,
+                    format!("middleware index out of bounds: len [{}] index [{}]", l, m),
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+        _ => {}
     }
 
     middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
