@@ -1,5 +1,4 @@
 use crate::handler::MODULE_PREFIX;
-use hyper::error::Kind::Body;
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
@@ -25,30 +24,6 @@ impl syn::parse::Parse for Arguments {
 
         Ok(Arguments { middleware })
     }
-}
-
-fn get_return_type(r: &ReturnType) -> proc_macro2::TokenStream {
-    if let ReturnType::Type(_, t) = r.clone() {
-        if let Type::Path(tp) = *t {
-            let last = tp.path.segments.last().unwrap();
-            if &last.ident != "Result" {
-                return Error::new_spanned(r, "Only Result return type supported")
-                    .to_compile_error()
-                    .into();
-            }
-            if let PathArguments::AngleBracketed(ab) = &last.arguments {
-                return ab
-                    .args
-                    .last()
-                    .expect("missing error generic argument")
-                    .to_token_stream();
-            }
-        }
-    }
-
-    Error::new_spanned(r, "Invalid return type")
-        .to_compile_error()
-        .into()
 }
 
 pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -99,11 +74,6 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
             .into();
     }
 
-    let err_type = get_return_type(&func.sig.output)
-        .to_token_stream()
-        .to_string();
-
-    let err_ident = format_ident!("{}", err_type);
     let name = func.sig.ident.clone();
 
     let mut make_args = vec![];
@@ -112,6 +82,9 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
     let fn_call_module_where = quote! { where mygenericmodule: };
     let mut where_segments = vec![];
     let mut fn_call_module_args = vec![];
+    let mut fn_dummy_call_module_args = vec![];
+    let mut fn_dummy_gen_args = vec![];
+
     let module_ident = format_ident!("{}", MODULE_PREFIX);
 
     for arg in func.sig.inputs.iter_mut() {
@@ -124,7 +97,10 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                 HandlerArg::Permanent(i, ts) => (i, ts),
                 HandlerArg::Expect(id, ttype, ts) => {
                     let cg = format_ident!("T{}", i);
+                    let dummy_t = format_ident!("dummy_t_{}", i);
                     fn_call_module_args.push(quote! {#cg: #ttype});
+                    fn_dummy_call_module_args.push(quote! {#cg: #dummy_t});
+                    fn_dummy_gen_args.push(quote! {#dummy_t});
 
                     (id.to_token_stream(), ts)
                 }
@@ -244,7 +220,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                 #(#make_args )*
                 #resolve_call
             }
-            #visibility async fn #empty_call<mygenericmodule, #func_gen_params>(p: &#p, #(#fn_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #empty_body) -> Result<(), #err_ident> #fn_call_module_where {
+            #visibility async fn #empty_call<mygenericmodule, #func_gen_params #(#fn_dummy_gen_args ,)*>(p: &#p, #(#fn_dummy_call_module_args ,)* #module_ident: std::sync::Arc<mygenericmodule> #empty_body) -> Result<(), String> #fn_call_module_where {
                 Ok(())
             }
         }

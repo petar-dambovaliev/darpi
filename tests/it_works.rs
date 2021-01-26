@@ -18,6 +18,10 @@ async fn hello_world() -> String {
     format!("hello world")
 }
 
+async fn asd<T>(s: T) -> String {
+    format!("hello world")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     app!({

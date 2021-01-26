@@ -1,9 +1,14 @@
-use darpi::{middleware, request::PayloadError, Body, HttpBody, ReqFormatter, RequestParts};
+use darpi::{
+    middleware, request::PayloadError, Body, HttpBody, ReqFormatter, RequestParts, RespFormatter,
+    Response,
+};
 
 pub mod auth;
 pub mod compression;
 
 use log;
+use std::convert::Infallible;
+use std::time::Instant;
 
 /// this middleware limits the request body size by a user passed argument
 /// the argument `size` indicates number of bytes
@@ -29,11 +34,18 @@ pub async fn log_request(
     #[request_parts] rp: &RequestParts,
     #[body] b: &Body,
     #[handler] formatter: impl ReqFormatter,
-) -> Result<(), String> {
+) -> Result<Instant, Infallible> {
     let formatted = formatter.format_req(b, rp);
     log::info!("{}", formatted);
-    Ok(())
+    Ok(Instant::now())
 }
 
-#[middleware(Request)]
-pub async fn returns_nothing() {}
+#[middleware(Response)]
+pub async fn log_response(
+    #[response] r: &Response<Body>,
+    #[handler] formatter: impl RespFormatter,
+    #[handler] start: &Instant,
+) {
+    let formatted = formatter.format_resp(start, r);
+    log::info!("{}", formatted);
+}

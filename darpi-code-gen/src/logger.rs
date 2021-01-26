@@ -25,11 +25,11 @@ pub enum ReqFmtTok {
     #[regex("%[{][A-Z][a-zA-Z_-]+[}]e")]
     EnvValue,
 
-    #[regex("%s[^%]+")]
+    #[regex(r"[^\t\n\f]+")]
     Sep,
 
     #[error]
-    #[regex(r"[ \t\n\f]+", logos::skip)]
+    #[regex(r"[\t\n\f]+", logos::skip)]
     Error,
 }
 
@@ -47,9 +47,6 @@ pub enum RespFmtTok {
     #[token("%s")]
     Status,
 
-    #[token("%u")]
-    Url,
-
     #[token("%b")]
     BodySize,
 
@@ -59,11 +56,11 @@ pub enum RespFmtTok {
     #[regex(r"%[{][A-Z][a-zA-Z_-]+[}]e")]
     EnvValue,
 
-    #[regex("%s[^%]+")]
+    #[regex(r"[^ \t\n\f]+")]
     Sep,
 
     #[error]
-    #[regex(r"[ \t\n\f]+", logos::skip)]
+    #[regex(r"[\t\n\f]+", logos::skip)]
     Error,
 }
 
@@ -98,7 +95,6 @@ pub fn make_res_fmt(expr_lit: ExprLit) -> Result<proc_macro::TokenStream, Error>
                 }
                 RespFmtTok::Took => {}
                 RespFmtTok::Status => {}
-                RespFmtTok::Url => {}
                 RespFmtTok::BodySize => {}
                 RespFmtTok::HeaderValue => {}
                 RespFmtTok::EnvValue => {}

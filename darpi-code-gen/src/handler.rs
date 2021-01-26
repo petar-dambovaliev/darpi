@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error,
+    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, Expr,
     ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type,
     TypePath, TypeTuple,
 };
@@ -69,6 +69,12 @@ pub(crate) fn expand_middlewares_impl(
         let handler_name_request = format_ident!("{}_request", handler_name);
         let handler_name_response = format_ident!("{}_response", handler_name);
         let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
+            if let Expr::Call(expr_call) = arg {
+                if expr_call.func.to_token_stream().to_string() == "middleware" {
+                    let i_ident = format_ident!("m_arg_{}", expr_call.args.first().unwrap().to_token_stream().to_string());
+                    return quote!{#i_ident};
+                }
+            }
             quote! {#arg}
         }).collect();
 
@@ -181,42 +187,59 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let mut module = Default::default();
     let mut dummy_t = quote! {,T};
-    let mut middlewares_impl = Default::default();
     let mut middleware_req = vec![];
     let mut middleware_res = vec![];
-    let mut i = 0u64;
+    let mut i = 0u16;
 
     if !args.is_empty() {
         let arguments = parse_macro_input!(args as Arguments);
         if let Some(m) = arguments.middleware {
-            let h_req = format_ident!("{}_request", func_name);
-            let h_res = format_ident!("{}_response", func_name);
             m.iter().for_each(|e| {
                 let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
-                middleware_req.push(quote! {
-                    let #m_arg_ident = match #name::#h_req(#module_ident.clone(), &mut parts, &mut body).await {
-                        Ok(k) => k,
-                        Err(e) => return Ok(e),
-                    };
-                });
-
-                middleware_res.push(quote! {
-                    if let Err(e) = #name::#h_res(#module_ident.clone(), &mut rb).await {
-                        return Ok(e);
+                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
+                let mut sorter = 0_u16;
+                let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
+                    if let Expr::Call(expr_call) = arg {
+                        if expr_call.func.to_token_stream().to_string() == "middleware" {
+                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                            sorter += index;
+                            let i_ident = format_ident!("m_arg_{}", index);
+                            return quote!{#i_ident.clone()};
+                        }
                     }
-                });
+                    quote! {#arg}
+                }).collect();
+
+                middleware_req.push((sorter, quote! {
+                    let #m_arg_ident = match #name::call_Request(&mut parts, #(#m_args ,)* #module_ident.clone(), &mut body).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
+
+                middleware_res.push((std::u16::MAX - i - sorter, quote! {
+                    let #r_m_arg_ident = match #name::call_Response(&mut rb, #(#m_args ,)* #module_ident.clone()).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
                 i += 1;
             });
-
-            middlewares_impl =
-                expand_middlewares_impl(&arguments.module, func_name, m.clone(), map);
         }
         if let Some(m) = arguments.module {
             module = quote! {#module_ident: std::sync::Arc<#m>};
             dummy_t = Default::default();
         }
     }
+
+    middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
+    middleware_res.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let middleware_req: Vec<proc_macro2::TokenStream> =
+        middleware_req.into_iter().map(|e| e.1).collect();
+    let middleware_res: Vec<proc_macro2::TokenStream> =
+        middleware_res.into_iter().map(|e| e.1).collect();
 
     let no_body = format_ident!("{}_{}", NO_BODY_PREFIX, func_name);
     let mut body_checker = proc_macro2::TokenStream::new();
@@ -258,24 +281,15 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                 #(#middleware_req )*
 
                #(#make_args )*
-               Ok(async {
-                    Self::#func_name(#(#give_args ,)*).await.respond()
-               }.await)
-        }
-    };
 
-    let fn_expand_call = quote! {
-        #[inline]
-        pub(crate) async fn expand_call<'a#dummy_t>(parts: darpi::RequestParts, body: darpi::Body, (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
-            let mut rb = Self::call(parts, body, (req_route, req_args), #module_ident).await.unwrap();
-            #(#middleware_res )*
-            Ok(rb)
+               let mut rb = Self::#func_name(#(#give_args ,)*).await.respond();
+
+               #(#middleware_res )*
+                Ok(rb)
         }
     };
 
     let output = quote! {
-        #[allow(non_camel_case_types, missing_docs)]
-        #(#middlewares_impl )*
         #[allow(non_camel_case_types, missing_docs)]
         trait #has_path_args {}
         #[allow(non_camel_case_types, missing_docs)]
@@ -290,7 +304,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
            #fn_call
            //user defined function
            #func_copy
-           #fn_expand_call
        }
     };
     //panic!("{}", output.to_string());

@@ -1,5 +1,5 @@
 use chrono;
-use darpi::{app, handler, response::Responder, Method, Path};
+use darpi::{app, handler, middleware, response::Responder, Method, Path};
 use darpi_headers::EncodingType::{Deflate, Gzip};
 use darpi_middleware::auth::*;
 use darpi_middleware::body_size_limit;
