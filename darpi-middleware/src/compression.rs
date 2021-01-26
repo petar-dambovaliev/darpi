@@ -145,7 +145,6 @@ pub async fn decompress(
                     full_body = Brotli.decode(&full_body).await?.into();
                 }
                 EncodingType::Identity | EncodingType::Auto => {}
-                _ => return Err(Error::UnsupportedContentEncoding(et)),
             }
         }
     }

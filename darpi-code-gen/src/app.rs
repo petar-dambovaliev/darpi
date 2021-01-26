@@ -103,6 +103,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             middlewares.iter().for_each(|e| {
                 let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
+                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                 let mut sorter = 0_u16;
 
                 let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
@@ -125,11 +126,12 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 }));
 
                 middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #m_arg_ident = match #name::call_Response(&mut rb, #(#m_args ,)* inner_module.clone()).await {
+                    let #r_m_arg_ident = match #name::call_Response(&mut rb, #(#m_args ,)* inner_module.clone()).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
                 }));
+                i += 1;
             });
 
             (
@@ -186,6 +188,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                     async move {
                         Ok::<_, std::convert::Infallible>(darpi::service::service_fn(move |r: darpi::Request<darpi::Body>| {
                             use darpi::futures::FutureExt;
+                            use darpi::response::ResponderError;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
@@ -218,7 +221,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                     #(#routes_match ,)*
                                 };
 
-                                if let Ok(rb) = rb.as_mut() {
+                                if let Ok(mut rb) = rb.as_mut() {
                                     #(#middleware_res )*
                                 }
 

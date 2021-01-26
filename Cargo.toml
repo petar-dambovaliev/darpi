@@ -40,3 +40,4 @@ async-trait = "0.1.42"
 darpi-middleware = { path = "./darpi-middleware" }
 darpi-headers = { path = "./darpi-headers" }
 chrono = "0.4"
+env_logger = "0.8.2"

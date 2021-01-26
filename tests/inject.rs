@@ -1,5 +1,7 @@
 use darpi::request::PayloadError;
-use darpi::{app, handler, middleware, Body, Error, HttpBody, Json, Method, Path, Query};
+use darpi::{app, handler, logger::DefaulFormat, middleware, Body, Error, Method, Path, Query};
+use darpi_middleware::{log_request, log_response};
+use env_logger;
 use serde::{Deserialize, Serialize};
 use shaku::module;
 
@@ -36,15 +38,6 @@ async fn do_something_else() -> String {
     "do something".to_string()
 }
 
-// #[path] tells the handler macro that it should decode the path arguments "/hello_world/{name}" into Name
-// and it is always mandatory. A request without "{name}" will result
-// in the request path not matching the handler. It will either match another
-// handler or result in an 404
-// #[query] Option<Name> is extracted from the url query "?name=jason"
-// it is optional, as the type suggests. To make it mandatory, simply
-// remove the Option type. If there is a query in the handler and
-// an incoming request url does not contain the query parameters, it will
-// result in an error response
 #[handler]
 async fn hello_world(#[path] p: Name, #[query] q: Name) -> String {
     format!("{} sends hello to {}", p.name, q.name)
@@ -52,19 +45,12 @@ async fn hello_world(#[path] p: Name, #[query] q: Name) -> String {
 
 #[tokio::test]
 async fn main() -> Result<(), Error> {
-    // the `app` macro creates a server and allows the user to call
-    // the method `run` and await on that future
+    env_logger::builder().is_test(true).try_init().unwrap();
+
     app!({
-       // the provided address is verified at compile time
         address: "127.0.0.1:3000",
-        // via the container we inject our dependencies
-        // in this case, MyLogger type
-        // any handler that has the trait Logger as an argument
-        // will be given MyLogger
         module: make_container => Container,
-        // a set of global middleware that will be executed for every handler
-        // it will assert that every request has a body size less than 128 bytes
-        middleware: [],
+        middleware: [log_request(DefaulFormat), log_response(DefaulFormat, middleware(0))],
         bind: [
             {
                 // When a path argument is defined in the route,

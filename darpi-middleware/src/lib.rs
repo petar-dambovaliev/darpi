@@ -1,6 +1,6 @@
 use darpi::{
-    middleware, request::PayloadError, Body, HttpBody, ReqFormatter, RequestParts, RespFormatter,
-    Response,
+    logger::ReqFormatter, logger::RespFormatter, middleware, request::PayloadError, Body, HttpBody,
+    RequestParts, Response,
 };
 
 pub mod auth;
@@ -44,8 +44,8 @@ pub async fn log_request(
 pub async fn log_response(
     #[response] r: &Response<Body>,
     #[handler] formatter: impl RespFormatter,
-    #[handler] start: &Instant,
+    #[handler] start: Instant,
 ) {
-    let formatted = formatter.format_resp(start, r);
+    let formatted = formatter.format_resp(&start, r);
     log::info!("{}", formatted);
 }
