@@ -1,8 +1,12 @@
 #![forbid(unsafe_code)]
 
 pub use darpi_code_gen::{app, handler, middleware, req_formatter, Path, Query};
-pub use darpi_web::{logger, request, response, xml::Xml, yaml::Yaml, Json};
+pub use darpi_web::{
+    logger, middleware::RequestMiddleware, middleware::ResponseMiddleware, request, response,
+    xml::Xml, yaml::Yaml, Json,
+};
 
+pub use async_trait::async_trait;
 pub use darpi_route::{ReqRoute, Route};
 pub use futures;
 pub use http::{header, request::Parts as RequestParts, Method, StatusCode};

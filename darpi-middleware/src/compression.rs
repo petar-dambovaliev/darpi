@@ -41,7 +41,7 @@ use std::convert::TryFrom;
 /// ```
 #[middleware(Response)]
 pub async fn compress(
-    #[handler] encoding_types: &[EncodingType],
+    #[handler] encoding_types: &'static [EncodingType],
     #[response] r: &mut Response<Body>,
 ) -> Result<(), Error> {
     let matched_encoding = if let Some(val) = r.headers().get(&ACCEPT_ENCODING) {

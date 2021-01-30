@@ -5,6 +5,7 @@ pub use json::Json;
 
 pub mod json;
 pub mod logger;
+pub mod middleware;
 pub mod request;
 pub mod response;
 pub mod xml;

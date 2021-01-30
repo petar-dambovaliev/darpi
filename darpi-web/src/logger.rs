@@ -8,7 +8,7 @@ pub struct DefaulFormat;
 impl ReqFormatter for DefaulFormat {}
 impl RespFormatter for DefaulFormat {}
 
-pub trait ReqFormatter {
+pub trait ReqFormatter: Sync + Send + 'static {
     fn format_req(&self, b: &Body, rp: &RequestParts) -> String {
         let mut content = vec!["[darpi::request]".to_string()];
 
@@ -39,7 +39,7 @@ pub trait ReqFormatter {
     }
 }
 
-pub trait RespFormatter {
+pub trait RespFormatter: Sync + Send + 'static {
     fn format_resp(&self, start: &Instant, r: &Response<Body>) -> String {
         let mut content = vec!["[darpi::response]".to_string()];
 

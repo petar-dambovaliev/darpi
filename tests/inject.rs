@@ -32,11 +32,15 @@ async fn second(#[handler] size: u64) -> Result<u64, PayloadError> {
     Ok(size + 1)
 }
 
-//todo make sure the middleware index is a correct value within bounds of the current element
-#[handler([first(1), second(middleware(0))])]
-async fn do_something_else(#[middleware(2)] m: u64) -> String {
-    "do something".to_string()
-}
+//todo implement the ... operator for middleware slicing
+// #[handler(
+//     container = Container,
+//     request = [first(1)],
+//     response = [second(request(0))]
+// )]
+// async fn do_something_else(#[middleware(1)] m: u64) -> String {
+//     "do something".to_string()
+// }
 
 #[handler]
 async fn hello_world(#[path] p: Name, #[query] q: Name) -> String {
