@@ -38,14 +38,9 @@ async fn second(#[handler] size: u64) -> Result<u64, PayloadError> {
 //     request = [first(1)],
 //     response = [second(request(0))]
 // )]
-// async fn do_something_else(#[middleware(1)] m: u64) -> String {
-//     "do something".to_string()
+// async fn hello_world(#[middleware(1)] m: u64) -> String {
+//     format!("{}", m)
 // }
-
-#[handler]
-async fn hello_world(#[path] p: Name, #[query] q: Name) -> String {
-    format!("{} sends hello to {}", p.name, q.name)
-}
 
 #[tokio::test]
 async fn main() -> Result<(), Error> {
@@ -56,22 +51,17 @@ async fn main() -> Result<(), Error> {
         module: make_container => Container,
         middleware: [log_request(DefaulFormat), log_response(DefaulFormat, middleware(0))],
         bind: [
-            {
-                // When a path argument is defined in the route,
-                // the handler is required to have Path<T> as an argument
-                // if not present, it will result in a compilation error
-                route: "/hello_world/{name}",
-                method: Method::GET,
-                // handlers bound with a GET method are not allowed
-                // to request a body(payload) from the request.
-                // Json<T> argument would result in a compilation error
-                handler: hello_world
-            },
-            {
-                route: "/hello_world/{name}",
-                method: Method::POST,
-                handler: do_something_else
-            },
+            // {
+            //     // When a path argument is defined in the route,
+            //     // the handler is required to have Path<T> as an argument
+            //     // if not present, it will result in a compilation error
+            //     route: "/hello_world",
+            //     method: Method::GET,
+            //     // handlers bound with a GET method are not allowed
+            //     // to request a body(payload) from the request.
+            //     // Json<T> argument would result in a compilation error
+            //     handler: hello_world
+            // }
         ],
     })
     .run()
