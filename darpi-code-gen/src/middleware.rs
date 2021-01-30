@@ -4,8 +4,8 @@ use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use quote::{ToTokens, TokenStreamExt};
 use syn::{
-    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, PathSegment,
-    ReturnType, Type,
+    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, ReturnType,
+    Type,
 };
 
 pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -182,7 +182,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                     type Type = #k;
 
                     async fn call(
-                        r: &mut Response<Body>,
+                        r: &mut darpi::Response<Body>,
                         module: std::sync::Arc<M>,
                         ha: Self::HandlerArgs,
                     ) -> Result<Self::Type, Self::Error> {
@@ -203,6 +203,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         .into(),
     };
 
+    //panic!("{}", tokens.to_string());
     tokens.into()
 }
 

@@ -193,20 +193,27 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
     }
 
-    // match (len_middleware, max_middleware_index) {
-    //     (Some(l), Some(m)) => {
-    //         if m >= l as u64 {
-    //             return Error::new(
-    //                 Span::from(proc_macro::Span::call_site()),
-    //                 format!("middleware index out of bounds: len [{}] index [{}]", l, m),
-    //             )
-    //             .to_compile_error()
-    //             .into();
-    //         }
-    //     }
-    //     _ => {}
-    // }
-    //qwde
+    match (len_middleware, max_middleware_index) {
+        (Some(l), Some(m)) => {
+            if m >= l as u64 {
+                return Error::new(
+                    Span::from(proc_macro::Span::call_site()),
+                    format!("middleware index out of bounds: len [{}] index [{}]", l, m),
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+        (None, Some(_)) => {
+            return Error::new(
+                Span::from(proc_macro::Span::call_site()),
+                format!("no middleware registered for this handler"),
+            )
+            .to_compile_error()
+            .into();
+        }
+        _ => {}
+    }
 
     middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
     middleware_res.sort_by(|a, b| a.0.cmp(&b.0));
