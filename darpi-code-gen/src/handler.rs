@@ -594,62 +594,11 @@ fn make_handler_args(
         }
 
         if attr_ident == "res_middleware" {
-            let index: ExprLit = match attr.parse_args() {
-                Ok(el) => el,
-                Err(_) => {
-                    return Err(Error::new(
-                        Span::call_site(),
-                        format!("missing res_middleware index"),
-                    )
+            return Err(
+                Error::new_spanned(attr_ident, "handlers args cannot refer to `res_middleware` return values because they are ran post handler")
                     .to_compile_error()
-                    .into())
-                }
-            };
-
-            let index = match index.lit {
-                syn::Lit::Int(i) => {
-                    let value = match i.base10_parse::<u64>() {
-                        Ok(k) => k,
-                        Err(_) => {
-                            return Err(Error::new(
-                                Span::call_site(),
-                                format!("invalid res_middleware index"),
-                            )
-                            .to_compile_error()
-                            .into())
-                        }
-                    };
-                    value
-                }
-                _ => {
-                    return Err(Error::new(
-                        Span::call_site(),
-                        format!("invalid res_middleware index"),
-                    )
-                    .to_compile_error()
-                    .into())
-                }
-            };
-
-            if index >= res_len as u64 {
-                return Err(Error::new(
-                    Span::call_site(),
-                    format!("invalid res_middleware index {}", index),
-                )
-                .to_compile_error()
-                .into());
-            }
-
-            let m_arg_ident = format_ident!("res_m_arg_{}", index);
-            let method_resolve = quote! {
-                let #arg_name: #ttype = #m_arg_ident;
-            };
-            return Ok(HandlerArgs::Middleware(
-                arg_name,
-                method_resolve,
-                index,
-                *ttype.clone(),
-            ));
+                    .into(),
+            );
         }
     }
     Err(Error::new(
