@@ -1,6 +1,6 @@
 use darpi::request::PayloadError;
 use darpi::{app, handler, logger::DefaulFormat, middleware, Body, Error, Method, Path, Query};
-//use darpi_middleware::{log_request, log_response};
+use darpi_middleware::{log_request, log_response};
 use env_logger;
 use serde::{Deserialize, Serialize};
 use shaku::module;
@@ -34,11 +34,11 @@ async fn second(#[handler] size: u64) -> Result<u64, PayloadError> {
 
 //todo implement the ... operator for middleware slicing
 #[handler(
-    container = Container,
-    request = [first(1)],
-    response = [second(request(0))]
+    container = Container
+    req_middleware = [first(1)]
+    res_middleware = [second(req_middleware(0))]
 )]
-async fn hello_world(#[middleware(1)] m: u64) -> String {
+async fn hello_world(#[req_middleware(0)] m: u64) -> String {
     format!("{}", m)
 }
 
@@ -49,7 +49,8 @@ async fn main() -> Result<(), Error> {
     app!({
         address: "127.0.0.1:3000",
         module: make_container => Container,
-        middleware: [], //log_request(DefaulFormat), log_response(DefaulFormat, middleware(0))
+        req_middleware: [log_request(DefaulFormat)],
+        res_middleware: [log_response((DefaulFormat, req_middleware(0)))],
         bind: [
             {
                 // When a path argument is defined in the route,

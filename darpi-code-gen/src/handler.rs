@@ -6,47 +6,66 @@ use std::collections::HashMap;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, Error, Expr,
-    ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Type,
-    TypePath,
+    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, token::Eq,
+    Error, Expr, ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments,
+    PathSegment, Type, TypePath,
 };
 
 #[derive(Debug)]
 struct Arguments {
     module: Option<Ident>,
-    middleware: Option<Punctuated<ExprCall, Comma>>,
+    req_middleware: Option<Punctuated<ExprCall, Comma>>,
+    res_middleware: Option<Punctuated<ExprCall, Comma>>,
 }
 
 impl syn::parse::Parse for Arguments {
     fn parse(input: ParseStream) -> Result<Self, Error> {
         let mut module = None;
-        let mut middleware = None;
+        let mut req_middleware = None;
+        let mut res_middleware = None;
 
-        if !input.is_empty() && !input.peek(Bracket) {
-            let f: Option<Ident> = Some(input.parse()?);
-            module = f;
-        } else if !input.is_empty() {
-            let content;
-            let _ = bracketed!(content in input);
-            let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
-            middleware = m;
+        while !input.is_empty() {
+            let id: Ident = input.parse()?;
+            let _: Eq = input.parse()?;
+            let id_str = id.to_string();
+
+            match id_str.as_str() {
+                "container" => {
+                    if module.is_some() {
+                        return Err(Error::new_spanned(
+                            id.clone(),
+                            format!("cannot overwrite container: `{}`", id),
+                        ));
+                    }
+                    let f: Option<Ident> = Some(input.parse()?);
+                    module = f;
+                }
+                "req_middleware" => {
+                    let content;
+                    let _ = bracketed!(content in input);
+                    let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
+                    req_middleware = m;
+                }
+                "res_middleware" => {
+                    let content;
+                    let _ = bracketed!(content in input);
+                    let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
+                    res_middleware = m;
+                }
+                _ => {
+                    return Err(Error::new_spanned(
+                        id.clone(),
+                        format!("unknown key: `{}`", id),
+                    ))
+                }
+            }
         }
 
-        if input.peek(Comma) {
-            let _: Comma = input.parse()?;
-        }
-
-        if !input.is_empty() && module.is_none() && !input.peek(Bracket) {
-            let f: Option<Ident> = Some(input.parse()?);
-            module = f;
-        } else if !input.is_empty() {
-            let content;
-            let _ = bracketed!(content in input);
-            let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
-            middleware = m;
-        }
-
-        Ok(Arguments { module, middleware })
+        Ok(Arguments {
+            module,
+            req_middleware,
+            res_middleware,
+        })
     }
 }
 
@@ -68,7 +87,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let module_ident = format_ident!("{}", MODULE_PREFIX);
     let mut make_args = vec![];
     let mut give_args = vec![];
-    let mut i = 0_u32;
     let mut n_args = 0u8;
     let mut wants_body = false;
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
@@ -76,10 +94,75 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
     let mut map = HashMap::new();
     let mut max_middleware_index = None;
+    let mut req_len = 0;
+    let mut res_len = 0;
 
+    if n_args > 1 {
+        return Error::new_spanned(func, "One 1 path type is allowed")
+            .to_compile_error()
+            .into();
+    }
+
+    let mut module = Default::default();
+    let mut dummy_t = quote! {,T};
+    let mut middleware_req = vec![];
+    let mut middleware_res = vec![];
+    let mut i = 0u16;
+    let mut len_middleware = None;
+
+    if !args.is_empty() {
+        let arguments = parse_macro_input!(args as Arguments);
+        req_len = arguments.req_middleware.clone().map_or(0, |f| f.len());
+
+        if let Some(m) = arguments.req_middleware {
+            len_middleware = Some(m.len());
+            for e in &m {
+                let name = &e.func;
+                let m_arg_ident = format_ident!("m_arg_{}", i);
+                let mut sorter = 0_u16;
+                let m_args: Vec<proc_macro2::TokenStream> =
+                    get_req_middleware_arg(e, &mut sorter, m.len());
+
+                middleware_req.push((sorter, quote! {
+                    let #m_arg_ident = match #name::call(&mut parts, #module_ident.clone(), &mut body , #(#m_args ,)*).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
+                i += 1;
+            }
+        }
+
+        res_len = arguments.res_middleware.clone().map_or(0, |f| f.len());
+        if let Some(m) = arguments.res_middleware {
+            len_middleware = Some(m.len());
+            for e in &m {
+                let name = &e.func;
+                let m_arg_ident = format_ident!("m_arg_{}", i);
+                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
+                let mut sorter = 0_u16;
+                let m_args: Vec<proc_macro2::TokenStream> =
+                    get_res_middleware_arg(e, &mut sorter, m.len(), res_len);
+
+                middleware_res.push((std::u16::MAX - i - sorter, quote! {
+                    let #r_m_arg_ident = match #name::call(&mut rb, #module_ident.clone(), #(#m_args ,)*).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
+                i += 1;
+            }
+        }
+        if let Some(m) = arguments.module {
+            module = quote! {#module_ident: std::sync::Arc<#m>};
+            dummy_t = Default::default();
+        }
+    }
+
+    let mut i = 0_u32;
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
-            let h_args = match make_handler_args(tp, i, &module_ident) {
+            let h_args = match make_handler_args(tp, i, &module_ident, req_len, res_len) {
                 Ok(k) => k,
                 Err(e) => return e,
             };
@@ -114,105 +197,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             i += 1;
             tp.attrs = Default::default();
         }
-    }
-
-    if n_args > 1 {
-        return Error::new_spanned(func, "One 1 path type is allowed")
-            .to_compile_error()
-            .into();
-    }
-
-    let mut module = Default::default();
-    let mut dummy_t = quote! {,T};
-    let mut middleware_req = vec![];
-    let mut middleware_res = vec![];
-    let mut i = 0u16;
-    let mut len_middleware = None;
-
-    if !args.is_empty() {
-        let arguments = parse_macro_input!(args as Arguments);
-        if let Some(m) = arguments.middleware {
-            len_middleware = Some(m.len());
-            for e in &m {
-                let name = &e.func;
-                let m_arg_ident = format_ident!("m_arg_{}", i);
-                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
-                let mut sorter = 0_u16;
-                let m_args: Vec<proc_macro2::TokenStream> = e
-                    .args
-                    .iter()
-                    .map(|arg| {
-                        if let Expr::Call(expr_call) = arg {
-                            if expr_call.func.to_token_stream().to_string() == "middleware" {
-                                let index: u16 = expr_call
-                                    .args
-                                    .first()
-                                    .unwrap()
-                                    .to_token_stream()
-                                    .to_string()
-                                    .parse()
-                                    .unwrap();
-
-                                if index as usize >= m.len() {
-                                    return Error::new_spanned(
-                                        &func,
-                                        "middleware index out of bounds",
-                                    )
-                                    .to_compile_error()
-                                    .into();
-                                }
-
-                                sorter += index;
-                                let i_ident = format_ident!("m_arg_{}", index);
-                                return quote! {#i_ident.clone()};
-                            }
-                        }
-                        quote! {#arg}
-                    })
-                    .collect();
-
-                middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call_Request(&mut parts, #(#m_args ,)* #module_ident.clone(), &mut body).await {
-                        Ok(k) => k,
-                        Err(e) => return Ok(e.respond_err()),
-                    };
-                }));
-
-                middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #r_m_arg_ident = match #name::call_Response(&mut rb, #(#m_args ,)* #module_ident.clone()).await {
-                        Ok(k) => k,
-                        Err(e) => return Ok(e.respond_err()),
-                    };
-                }));
-                i += 1;
-            }
-        }
-        if let Some(m) = arguments.module {
-            module = quote! {#module_ident: std::sync::Arc<#m>};
-            dummy_t = Default::default();
-        }
-    }
-
-    match (len_middleware, max_middleware_index) {
-        (Some(l), Some(m)) => {
-            if m >= l as u64 {
-                return Error::new(
-                    Span::from(proc_macro::Span::call_site()),
-                    format!("middleware index out of bounds: len [{}] index [{}]", l, m),
-                )
-                .to_compile_error()
-                .into();
-            }
-        }
-        (None, Some(_)) => {
-            return Error::new(
-                Span::from(proc_macro::Span::call_site()),
-                format!("no middleware registered for this handler"),
-            )
-            .to_compile_error()
-            .into();
-        }
-        _ => {}
     }
 
     middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
@@ -261,6 +245,10 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                use darpi::request::FromQuery;
                use darpi::request::FromRequestBody;
                use darpi::response::ResponderError;
+               #[allow(unused_imports)]
+               use darpi::RequestMiddleware;
+               #[allow(unused_imports)]
+               use darpi::ResponseMiddleware;
 
                 #(#middleware_req )*
 
@@ -292,6 +280,97 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     };
     //panic!("{}", output.to_string());
     output.into()
+}
+
+fn get_req_middleware_arg(
+    e: &ExprCall,
+    sorter: &mut u16,
+    m_len: usize,
+) -> Vec<proc_macro2::TokenStream> {
+    let m_args: Vec<proc_macro2::TokenStream> = e
+        .args
+        .iter()
+        .map(|arg| {
+            if let Expr::Call(expr_call) = arg {
+                let arg_name = expr_call.func.to_token_stream().to_string();
+                if arg_name == "req_middleware" {
+                    let index: u16 = expr_call
+                        .args
+                        .first()
+                        .unwrap()
+                        .to_token_stream()
+                        .to_string()
+                        .parse()
+                        .unwrap();
+
+                    if index as usize >= m_len {
+                        panic!("middleware index out of bounds");
+                    }
+
+                    *sorter += index;
+                    let i_ident = format_ident!("m_arg_{}", index);
+                    return quote! {#i_ident.clone()};
+                } else if arg_name == "res_middleware" {
+                    panic!("request middleware is executed before response middleware. therefore, it cannot ask for response middleware results")
+                }
+            }
+            quote! {#arg}
+        })
+        .collect();
+    m_args
+}
+
+fn get_res_middleware_arg(
+    e: &ExprCall,
+    sorter: &mut u16,
+    m_len: usize,
+    other_len: usize,
+) -> Vec<proc_macro2::TokenStream> {
+    let m_args: Vec<proc_macro2::TokenStream> = e
+        .args
+        .iter()
+        .map(|arg| {
+            if let Expr::Call(expr_call) = arg {
+                if expr_call.func.clone().to_token_stream().to_string() == "res_middleware" {
+                    let index: u16 = expr_call
+                        .args
+                        .first()
+                        .unwrap()
+                        .to_token_stream()
+                        .to_string()
+                        .parse()
+                        .unwrap();
+
+                    if index as usize >= m_len {
+                        panic!("middleware index out of bounds");
+                    }
+
+                    *sorter += index;
+                    let i_ident = format_ident!("m_arg_{}", index);
+                    return quote! {#i_ident.clone()};
+                } else if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                    let index: u16 = expr_call
+                        .args
+                        .first()
+                        .unwrap()
+                        .to_token_stream()
+                        .to_string()
+                        .parse()
+                        .unwrap();
+
+                    if index as usize >= other_len {
+                        panic!("middleware index out of bounds");
+                    }
+
+                    *sorter += index;
+                    let i_ident = format_ident!("m_arg_{}", index);
+                    return quote! {#i_ident.clone()};
+                }
+            }
+            quote! {#arg}
+        })
+        .collect();
+    m_args
 }
 
 fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
@@ -404,6 +483,8 @@ fn make_handler_args(
     tp: &PatType,
     i: u32,
     module_ident: &Ident,
+    req_len: usize,
+    res_len: usize,
 ) -> Result<HandlerArgs, TokenStream> {
     let ttype = &tp.ty;
 
@@ -456,7 +537,7 @@ fn make_handler_args(
             return Ok(HandlerArgs::Module(arg_name, method_resolve));
         }
 
-        if attr_ident == "middleware" {
+        if attr_ident == "req_middleware" {
             let index: ExprLit = match attr.parse_args() {
                 Ok(el) => el,
                 Err(_) => {
@@ -471,21 +552,95 @@ fn make_handler_args(
                     let value = match i.base10_parse::<u64>() {
                         Ok(k) => k,
                         Err(_) => {
-                            return Err(Error::new(Span::call_site(), format!("invalid index"))
-                                .to_compile_error()
-                                .into())
+                            return Err(Error::new(
+                                Span::call_site(),
+                                format!("invalid req_middleware index"),
+                            )
+                            .to_compile_error()
+                            .into())
                         }
                     };
                     value
                 }
                 _ => {
-                    return Err(Error::new(Span::call_site(), format!("invalid index"))
-                        .to_compile_error()
-                        .into())
+                    return Err(Error::new(
+                        Span::call_site(),
+                        format!("invalid req_middleware index"),
+                    )
+                    .to_compile_error()
+                    .into())
                 }
             };
 
+            if index >= req_len as u64 {
+                return Err(Error::new(
+                    Span::call_site(),
+                    format!("invalid req_middleware index {}", index),
+                )
+                .to_compile_error()
+                .into());
+            }
+
             let m_arg_ident = format_ident!("m_arg_{}", index);
+            let method_resolve = quote! {
+                let #arg_name: #ttype = #m_arg_ident;
+            };
+            return Ok(HandlerArgs::Middleware(
+                arg_name,
+                method_resolve,
+                index,
+                *ttype.clone(),
+            ));
+        }
+
+        if attr_ident == "res_middleware" {
+            let index: ExprLit = match attr.parse_args() {
+                Ok(el) => el,
+                Err(_) => {
+                    return Err(Error::new(
+                        Span::call_site(),
+                        format!("missing res_middleware index"),
+                    )
+                    .to_compile_error()
+                    .into())
+                }
+            };
+
+            let index = match index.lit {
+                syn::Lit::Int(i) => {
+                    let value = match i.base10_parse::<u64>() {
+                        Ok(k) => k,
+                        Err(_) => {
+                            return Err(Error::new(
+                                Span::call_site(),
+                                format!("invalid res_middleware index"),
+                            )
+                            .to_compile_error()
+                            .into())
+                        }
+                    };
+                    value
+                }
+                _ => {
+                    return Err(Error::new(
+                        Span::call_site(),
+                        format!("invalid res_middleware index"),
+                    )
+                    .to_compile_error()
+                    .into())
+                }
+            };
+
+            if index >= res_len as u64 {
+                return Err(Error::new(
+                    Span::call_site(),
+                    format!("invalid res_middleware index {}", index),
+                )
+                .to_compile_error()
+                .into());
+            }
+
+            let m_arg_ident = format_ident!("res_m_arg_{}", index);
             let method_resolve = quote! {
                 let #arg_name: #ttype = #m_arg_ident;
             };
@@ -504,74 +659,3 @@ fn make_handler_args(
     .to_compile_error()
     .into())
 }
-
-// pub(crate) fn expand_middlewares_impl(
-//     container: &Option<Ident>,
-//     handler_name: &Ident,
-//     mut p: Punctuated<ExprCall, Comma>,
-//     map: HashMap<u64, Type>,
-// ) -> Vec<proc_macro2::TokenStream> {
-//     let mut middleware_impl = vec![];
-//     let mut i = 0_u64;
-//
-//     p.iter_mut().for_each(|e| {
-//         let name = &e.func;
-//         let handler_name_request = format_ident!("{}_request", handler_name);
-//         let handler_name_response = format_ident!("{}_response", handler_name);
-//         let args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
-//             if let Expr::Call(expr_call) = arg {
-//                 if expr_call.func.to_token_stream().to_string() == "middleware" {
-//                     let i_ident = format_ident!("m_arg_{}", expr_call.args.first().unwrap().to_token_stream().to_string());
-//                     return quote!{#i_ident};
-//                 }
-//             }
-//             quote! {#arg}
-//         }).collect();
-//
-//         let (where_clause, dummy_gen, def_c, give_c) = container.as_ref().map_or((quote!{
-//         where
-//         T: 'static + Sync + Send,
-//         }, quote!{<T>}, quote!{c: std::sync::Arc<T>,}, quote!{c}), |c| (Default::default(), Default::default(), quote!{c: std::sync::Arc<#c>,}, quote!{c}));
-//
-//         let dummy_trait = format_ident!("{}_{}_trait", handler_name, name.to_token_stream().to_string());
-//
-//         let (ttype, ok) = match map.get(&i) {
-//             Some(t) => (t.clone(), quote!{Ok(t) => Ok(t)}),
-//             None => (Type::Tuple(TypeTuple{ paren_token: Default::default(), elems: Default::default() }), quote!{Ok(_) => Ok(())})
-//         };
-//
-//         let q = quote! {
-//             #[async_trait::async_trait]
-//             #[allow(non_camel_case_types, missing_docs)]
-//             trait #dummy_trait {
-//                 async fn #handler_name_request #dummy_gen (#def_c p: &mut darpi::RequestParts, b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause;
-//                 async fn #handler_name_response #dummy_gen (#def_c r: &mut darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause;
-//             }
-//             #[async_trait::async_trait]
-//             #[allow(non_camel_case_types, missing_docs)]
-//             impl #dummy_trait for #name {
-//                 async fn #handler_name_request #dummy_gen (#def_c p: &mut darpi::RequestParts, mut b: &mut darpi::Body) -> Result<#ttype, darpi::Response<darpi::Body>> #where_clause{
-//                     use darpi::response::ResponderError;
-//                     let concrete = #name::call_Request(p, #(#args ,)*  #give_c, &mut b).await;
-//
-//                     match concrete {
-//                         #ok,
-//                         Err(e) => Err(e.respond_err())
-//                     }
-//                 }
-//                 async fn #handler_name_response #dummy_gen (#def_c r: &mut darpi::Response<darpi::Body>) -> Result<(), darpi::Response<darpi::Body>> #where_clause {
-//                     use darpi::response::ResponderError;
-//                     let concrete = #name::call_Response(r, #(#args ,)* #give_c).await;
-//                     match concrete {
-//                         Ok(_) => Ok(()),
-//                         Err(e) => Err(e.respond_err())
-//                     }
-//                 }
-//             }
-//         };
-//
-//         middleware_impl.push(q);
-//         i += 1;
-//     });
-//     middleware_impl
-// }

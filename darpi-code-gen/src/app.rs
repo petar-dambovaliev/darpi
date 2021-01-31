@@ -119,14 +119,14 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 }).collect();
 
                 middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call_Request(&mut parts, #(#m_args ,)* inner_module.clone(), &mut body).await {
+                    let #m_arg_ident = match #name::call(&mut parts, inner_module.clone(), &mut body, #(#m_args ,)*).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
                 }));
 
                 middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #r_m_arg_ident = match #name::call_Response(&mut rb, #(#m_args ,)* inner_module.clone()).await {
+                    let #r_m_arg_ident = match #name::call(&mut rb, inner_module.clone(), #(#m_args ,)* ).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -189,6 +189,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                         Ok::<_, std::convert::Infallible>(darpi::service::service_fn(move |r: darpi::Request<darpi::Body>| {
                             use darpi::futures::FutureExt;
                             use darpi::response::ResponderError;
+                            #[allow(unused_imports)]
+                            use darpi::RequestMiddleware;
+                            #[allow(unused_imports)]
+                            use darpi::ResponseMiddleware;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {

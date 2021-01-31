@@ -332,9 +332,10 @@ fn make_handler_arg(tp: &PatType, i: u32, module_ident: &Ident) -> Result<Handle
         }
     }
 
-    //todo fix multiple mixed
     if attr_ident == "handler" {
-        let res = make_expect(&arg_name);
+        let res = quote! {
+            let #arg_name = ha
+        };
         let mut bounds = vec![];
         if let Type::ImplTrait(imt) = *ttype.clone() {
             for j in imt.bounds {
@@ -366,10 +367,4 @@ fn make_handler_arg(tp: &PatType, i: u32, module_ident: &Ident) -> Result<Handle
     )
     .to_compile_error()
     .into())
-}
-
-fn make_expect(arg_name: &Ident) -> proc_macro2::TokenStream {
-    quote! {
-        let #arg_name = ha
-    }
 }
