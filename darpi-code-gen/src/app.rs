@@ -24,7 +24,8 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         address,
         module_path,
         handlers,
-        middlewares,
+        req_middlewares,
+        mut res_middlewares,
     } = get_fields(app_struct)?;
 
     let address_value = match address {
@@ -91,24 +92,20 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
 
             let cloned = mp.value.path.get_ident().cloned();
 
-            let fake_ident = format_ident!("global");
             let map: HashMap<u64, Type> = HashMap::new();
 
             let mut middleware_req = vec![];
             let mut middleware_res = vec![];
             let mut i = 0u16;
 
-            let h_req = format_ident!("{}_request", fake_ident);
-            let h_res = format_ident!("{}_response", fake_ident);
-            middlewares.iter().for_each(|e| {
+            req_middlewares.iter().for_each(|e| {
                 let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
-                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                 let mut sorter = 0_u16;
 
                 let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
                     if let SynExpr::Call(expr_call) = arg {
-                        if expr_call.func.to_token_stream().to_string() == "middleware" {
+                        if expr_call.func.to_token_stream().to_string() == "req_middleware" {
                             let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                             sorter += index;
                             let i_ident = format_ident!("m_arg_{}", index);
@@ -124,6 +121,47 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                         Err(e) => return Ok(e.respond_err()),
                     };
                 }));
+                i += 1;
+            });
+
+            res_middlewares.iter_mut().for_each(|e| {
+                let name = &e.func;
+                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
+                let mut sorter = 0_u16;
+
+                let m_args: Vec<proc_macro2::TokenStream> = e.args.iter_mut().map(|arg| {
+                    if let SynExpr::Call(expr_call) = arg {
+                        if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                            let i_ident = format_ident!("m_arg_{}", index);
+                            return quote!{#i_ident.clone()};
+                        }
+                        if expr_call.func.to_token_stream().to_string() == "res_middleware" {
+                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                            sorter += index;
+                            return quote!{#r_m_arg_ident.clone()};
+                        }
+                    }
+                    if  let SynExpr::Tuple(tuple) = arg.clone() {
+                        let tuple_expr: Vec<proc_macro2::TokenStream> = tuple.elems.iter().map(|tuple_arg| {
+                            if let SynExpr::Call(expr_call) = tuple_arg {
+                                if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                                    let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                                    let i_ident = format_ident!("m_arg_{}", index);
+                                    return quote!{#i_ident.clone()};
+                                }
+                                if expr_call.func.to_token_stream().to_string() == "res_middleware" {
+                                    let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                                    sorter += index;
+                                    return quote!{#r_m_arg_ident.clone()};
+                                }
+                            }
+                            quote! {#tuple_arg}
+                        }).collect();
+                        return quote! {( #(#tuple_expr ,)* )};
+                    }
+                    quote! {#arg}
+                }).collect();
 
                 middleware_res.push((std::u16::MAX - i - sorter, quote! {
                     let #r_m_arg_ident = match #name::call(&mut rb, inner_module.clone(), #(#m_args ,)* ).await {
@@ -477,7 +515,7 @@ impl syn::parse::Parse for FieldValue {
         } else if member_ident == "handler" {
             let val: ExprPath = parse_variant(input)?;
             Expr::ExprPath(val)
-        } else if member_ident == "middleware" {
+        } else if member_ident == "req_middleware" || member_ident == "res_middleware" {
             let content;
             let _ = bracketed!(content in input);
             let val: Punctuated<ExprCall, Comma> = Punctuated::parse(&content)?;
@@ -601,7 +639,8 @@ struct FieldResult {
     address: Address,
     module_path: Option<ExprKeyValue>,
     handlers: Vec<ExprHandler>,
-    middlewares: Punctuated<ExprCall, Comma>,
+    req_middlewares: Punctuated<ExprCall, Comma>,
+    res_middlewares: Punctuated<ExprCall, Comma>,
 }
 
 enum Address {
@@ -654,13 +693,30 @@ fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
         .find(|f| &f.member.to_string() == "address")
         .expect("missing handlers");
 
-    let middleware_field = app_struct
+    let req_middleware_field = app_struct
         .fields
         .iter()
-        .find(|f| &f.member.to_string() == "middleware")
+        .find(|f| &f.member.to_string() == "req_middleware")
         .expect("missing middleware");
 
-    let middlewares = match &middleware_field.expr {
+    let req_middlewares = match &req_middleware_field.expr {
+        Expr::Punctuated(middlewares) => middlewares.clone(),
+        _ => {
+            return Err(
+                Error::new(Span::call_site(), "middleware should be an array literal")
+                    .to_compile_error()
+                    .into(),
+            )
+        }
+    };
+
+    let res_middleware_field = app_struct
+        .fields
+        .iter()
+        .find(|f| &f.member.to_string() == "res_middleware")
+        .expect("missing middleware");
+
+    let res_middlewares = match &res_middleware_field.expr {
         Expr::Punctuated(middlewares) => middlewares.clone(),
         _ => {
             return Err(
@@ -697,6 +753,7 @@ fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
         address,
         module_path,
         handlers,
-        middlewares,
+        req_middlewares,
+        res_middlewares,
     })
 }
