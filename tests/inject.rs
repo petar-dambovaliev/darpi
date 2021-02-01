@@ -1,5 +1,8 @@
 use darpi::request::PayloadError;
-use darpi::{app, handler, logger::DefaulFormat, middleware, Body, Error, Method, Path, Query};
+use darpi::{
+    app, handler, logger::DefaulFormat, middleware, req_formatter, resp_formatter, Body, Error,
+    Method, Path, Query,
+};
 use darpi_middleware::{log_request, log_response};
 use env_logger;
 use serde::{Deserialize, Serialize};
@@ -42,6 +45,10 @@ async fn hello_world(#[req_middleware(0)] m: u64) -> String {
     format!("{}", m)
 }
 
+#[resp_formatter("%a")]
+#[req_formatter("%a")]
+struct LogFormat;
+
 #[tokio::test]
 async fn main() -> Result<(), Error> {
     env_logger::builder().is_test(true).try_init().unwrap();
@@ -49,8 +56,8 @@ async fn main() -> Result<(), Error> {
     app!({
         address: "127.0.0.1:3000",
         container: make_container => Container,
-        req_middleware: [log_request(DefaulFormat)],
-        res_middleware: [log_response((DefaulFormat, req_middleware(0)))],
+        req_middleware: [log_request(LogFormat)],
+        res_middleware: [log_response((LogFormat, req_middleware(0)))],
         bind: [
             {
                 // When a path argument is defined in the route,

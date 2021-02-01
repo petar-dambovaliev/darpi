@@ -81,7 +81,7 @@ pub fn make_res_fmt(
                     ))
                 }
                 RespFmtTok::RemoteIP => variables.push(quote! {
-                    if let Some(forwarded) = rp.headers.get(darpi::header::FORWARDED) {
+                    if let Some(forwarded) = r.headers().get(darpi::header::FORWARDED) {
                         let forwarded = format!(
                             "remote_ip: {}",
                             forwarded.to_str().map_err(|_| "").expect("never to happen")
@@ -97,7 +97,7 @@ pub fn make_res_fmt(
                 }
                 RespFmtTok::BodySize => {
                     variables.push(quote! {
-                        let size = format!("body_size: {:#?}", b.size_hint());
+                        let size = format!("body_size: {:#?}", r.size_hint());
                         content.push(size);
                     });
                 }
@@ -105,7 +105,7 @@ pub fn make_res_fmt(
                     let variable = lex.slice();
 
                     variables.push(quote! {
-                        if let Some(variable) = rp.headers.get(#variable) {
+                        if let Some(variable) = r.headers().get(#variable) {
                         let variable = format!(
                             "{}: {}",
                             #variable,
@@ -152,7 +152,7 @@ pub fn make_res_fmt(
         let q = quote! {
             #item_struct
             impl darpi::RespFormatter for #name {
-                fn format_resp(&self, start: &Instant, r: &Response<Body>) -> String {
+                fn format_resp(&self, start: &std::time::Instant, r: &darpi::Response<darpi::Body>) -> String {
                     use darpi::HttpBody;
                     #(#variables )*
                 }
