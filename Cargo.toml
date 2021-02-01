@@ -31,6 +31,7 @@ darpi-web = { path = "./darpi-web" }
 darpi-code-gen = { path = "./darpi-code-gen" }
 darpi-route = {version = "0.1.0" }
 async-trait = "0.1.42"
+chrono = "0.4"
 
 [dev-dependencies]
 tokio = {version = "0.2.11", features = ["full"]}
@@ -39,5 +40,4 @@ futures-util = "0.3.8"
 derive_more = "0.99.11"
 darpi-middleware = { path = "./darpi-middleware" }
 darpi-headers = { path = "./darpi-headers" }
-chrono = "0.4"
 env_logger = "0.8.2"

@@ -1,7 +1,6 @@
 use darpi::request::PayloadError;
 use darpi::{
-    app, handler, logger::DefaulFormat, middleware, req_formatter, resp_formatter, Body, Error,
-    Method, Path, Query,
+    app, handler, middleware, req_formatter, resp_formatter, Body, Error, Method, Path, Query,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
@@ -45,13 +44,18 @@ async fn hello_world(#[req_middleware(0)] m: u64) -> String {
     format!("{}", m)
 }
 
-#[resp_formatter("%a")]
-#[req_formatter("%a")]
+#[resp_formatter("%a %t %T %s %b")]
+#[req_formatter("%a %t %b")]
 struct LogFormat;
 
+use tokio::runtime::Runtime;
+
+//RUST_LOG=darpi=info cargo test --test inject -- --nocapture
 #[tokio::test]
 async fn main() -> Result<(), Error> {
     env_logger::builder().is_test(true).try_init().unwrap();
+
+    let rt = Runtime::new().unwrap();
 
     app!({
         address: "127.0.0.1:3000",

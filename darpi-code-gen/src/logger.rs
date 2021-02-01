@@ -24,7 +24,7 @@ pub enum ReqFmtTok {
     #[regex("%[{][A-Z][a-zA-Z_-]+[}]e")]
     EnvValue,
 
-    #[regex(r"[^\t\n\f]+")]
+    #[regex(r"[^%\t\n\fa-zA-z{}]+")]
     Sep,
 
     #[error]
@@ -55,7 +55,7 @@ pub enum RespFmtTok {
     #[regex(r"%[{][A-Z][a-zA-Z_-]+[}]e")]
     EnvValue,
 
-    #[regex(r"[^ \t\n\f]+")]
+    #[regex(r"[^%\t\n\fa-zA-z{}]+")]
     Sep,
 
     #[error]
@@ -70,34 +70,34 @@ pub fn make_res_fmt(
     if let Lit::Str(str) = expr_lit.lit {
         let val = str.value();
         let mut lex = RespFmtTok::lexer(&val);
-        let mut variables = vec![quote! {let mut content = vec!["[darpi::request]".to_string()];}];
+        let mut variables = vec![quote! {let mut content = vec!["[response]".to_string()];}];
 
         while let Some(next) = lex.next() {
             match next {
                 RespFmtTok::Error => {
                     return Err(Error::new(
                         Span::call_site(),
-                        format!("invalid format value: {:#?}", next),
+                        format!("invalid format value: {:#?}", lex.slice()),
                     ))
                 }
                 RespFmtTok::RemoteIP => variables.push(quote! {
-                    if let Some(forwarded) = r.headers().get(darpi::header::FORWARDED) {
-                        let forwarded = format!(
-                            "remote_ip: {}",
-                            forwarded.to_str().map_err(|_| "").expect("never to happen")
-                        );
-                        content.push(forwarded);
-                    }
+                    let ip = if let Some(forwarded) = r.headers().get(darpi::header::FORWARDED) {
+                        format!("{}",forwarded.to_str().map_err(|_| "").expect("never to happen"))
+                    } else {
+                        format!("unknown")
+                    };
+                    let forwarded = format!("remote_ip: {}",ip);
+                    content.push(forwarded);
                 }),
                 RespFmtTok::When => {
                     variables.push(quote! {
-                        let now = format!("when: {:#?}", Instant::now());
+                        let now = format!("when: {}", darpi::chrono::Utc::now());
                         content.push(now);
                     });
                 }
                 RespFmtTok::BodySize => {
                     variables.push(quote! {
-                        let size = format!("body_size: {:#?}", r.size_hint());
+                        let size = format!("body_size: {} byte(s)", r.size_hint().upper().unwrap_or(r.size_hint().lower()));
                         content.push(size);
                     });
                 }
@@ -175,28 +175,28 @@ pub fn make_req_fmt(
     if let Lit::Str(str) = expr_lit.lit {
         let val = str.value();
         let mut lex = ReqFmtTok::lexer(&val);
-        let mut variables = vec![quote! {let mut content = vec!["[darpi::request]".to_string()];}];
+        let mut variables = vec![quote! {let mut content = vec!["[request]".to_string()];}];
 
         while let Some(next) = lex.next() {
             match next {
                 ReqFmtTok::Error => {
                     return Err(Error::new(
                         Span::call_site(),
-                        format!("invalid format value: {:#?}", next),
+                        format!("invalid format value: {:#?}", lex.slice()),
                     ))
                 }
                 ReqFmtTok::RemoteIP => variables.push(quote! {
-                    if let Some(forwarded) = rp.headers.get(darpi::header::FORWARDED) {
-                        let forwarded = format!(
-                            "remote_ip: {}",
-                            forwarded.to_str().map_err(|_| "").expect("never to happen")
-                        );
-                        content.push(forwarded);
-                    }
+                    let ip = if let Some(forwarded) = rp.headers.get(darpi::header::FORWARDED) {
+                        format!("{}",forwarded.to_str().map_err(|_| "").expect("never to happen"))
+                    } else {
+                        format!("unknown")
+                    };
+                    let forwarded = format!("remote_ip: {}",ip);
+                    content.push(forwarded);
                 }),
                 ReqFmtTok::When => {
                     variables.push(quote! {
-                        let now = format!("when: {:#?}", Instant::now());
+                        let now = format!("when: {}", darpi::chrono::Utc::now());
                         content.push(now);
                     });
                 }
@@ -208,7 +208,7 @@ pub fn make_req_fmt(
                 }
                 ReqFmtTok::BodySize => {
                     variables.push(quote! {
-                        let size = format!("body_size: {:#?}", b.size_hint());
+                        let size = format!("body_size: {} byte(s)", b.size_hint().upper().unwrap_or(b.size_hint().lower()));
                         content.push(size);
                     });
                 }
