@@ -48,7 +48,7 @@ async fn main() -> Result<(), Error> {
 
     app!({
         address: "127.0.0.1:3000",
-        module: make_container => Container,
+        container: make_container => Container,
         req_middleware: [log_request(DefaulFormat)],
         res_middleware: [log_response((DefaulFormat, req_middleware(0)))],
         bind: [

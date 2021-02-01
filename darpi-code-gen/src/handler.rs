@@ -109,6 +109,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut middleware_res = vec![];
     let mut i = 0u16;
     let mut len_middleware = None;
+    let mut module_type = quote! {T};
 
     if !args.is_empty() {
         let arguments = parse_macro_input!(args as Arguments);
@@ -124,7 +125,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     get_req_middleware_arg(e, &mut sorter, m.len());
 
                 middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call(&mut parts, #module_ident.clone(), &mut body , #(#m_args ,)*).await {
+                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, #(#m_args ,)*).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -145,7 +146,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     get_res_middleware_arg(e, &mut sorter, m.len(), res_len);
 
                 middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #r_m_arg_ident = match #name::call(&mut rb, #module_ident.clone(), #(#m_args ,)*).await {
+                    let #r_m_arg_ident = match #name::call(&mut rb, args.container.clone(), #(#m_args ,)*).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -156,6 +157,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         if let Some(m) = arguments.module {
             module = quote! {#module_ident: std::sync::Arc<#m>};
             dummy_t = Default::default();
+            module_type = m.to_token_stream();
         }
     }
 
@@ -207,25 +209,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let middleware_res: Vec<proc_macro2::TokenStream> =
         middleware_res.into_iter().map(|e| e.1).collect();
 
-    let no_body = format_ident!("{}_{}", NO_BODY_PREFIX, func_name);
-    let mut body_checker = proc_macro2::TokenStream::new();
-
-    if !wants_body {
-        body_checker = quote! {
-            impl #no_body for #func_name {}
-        };
-    }
-
     let func_copy = func.clone();
-
-    let mut dummy_where = Default::default();
-    if !dummy_t.is_empty() {
-        module = quote! {#module_ident: std::sync::Arc<T>};
-        dummy_where = quote! {
-        where
-        T: 'static + Sync + Send,
-        };
-    }
 
     let module_ident = if !module.is_empty() && dummy_t.is_empty() {
         quote! {#module_ident.clone()}
@@ -233,11 +217,20 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         quote! {#module_ident.clone()}
     };
 
-    let fn_call = quote! {
-        pub(crate) async fn call<'a#dummy_t>(
-            mut parts: darpi::RequestParts,
-            mut body: darpi::Body,
-            (req_route, req_args): (darpi::ReqRoute<'a>, std::collections::HashMap<&'a str, &'a str>), #module ) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> #dummy_where {
+    let output = quote! {
+        #[allow(non_camel_case_types, missing_docs)]
+        trait #has_path_args {}
+        #[allow(non_camel_case_types, missing_docs)]
+        trait #has_no_path_args {}
+        #[allow(non_camel_case_types, missing_docs)]
+        pub struct #func_name;
+        impl #func_name {
+           #func_copy
+        }
+
+        #[darpi::async_trait]
+        impl<'a #dummy_t> darpi::Handler<'a, #module_type> for #func_name {
+            async fn call(&self, args: &mut darpi::Args<'a, #module_type>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
                #[allow(unused_imports)]
                use shaku::HasComponent;
@@ -258,25 +251,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
                #(#middleware_res )*
                 Ok(rb)
+            }
         }
-    };
-
-    let output = quote! {
-        #[allow(non_camel_case_types, missing_docs)]
-        trait #has_path_args {}
-        #[allow(non_camel_case_types, missing_docs)]
-        trait #has_no_path_args {}
-        #[allow(non_camel_case_types, missing_docs)]
-        trait #no_body {}
-        #[allow(non_camel_case_types, missing_docs)]
-        pub struct #func_name;
-        #body_checker
-        #has_path_args_checker
-        impl #func_name {
-           #fn_call
-           //user defined function
-           #func_copy
-       }
     };
     //panic!("{}", output.to_string());
     output.into()

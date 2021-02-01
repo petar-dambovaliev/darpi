@@ -231,6 +231,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                             use darpi::RequestMiddleware;
                             #[allow(unused_imports)]
                             use darpi::ResponseMiddleware;
+                            use darpi::Handler;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             async move {
@@ -376,7 +377,13 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
 
         routes_match.push(quote! {
             RoutePossibilities::#variant_name => {
-                #variant_value::call(parts, body, handler.1, inner_module.clone()).await
+                let mut args = darpi::Args{
+                    request_parts: &mut parts,
+                    container: inner_module.clone(),
+                    body: &mut body,
+                    route_args: handler.1.1,
+                };
+                Handler::call(&#variant_value, &mut args).await
             }
         });
     });
@@ -482,7 +489,7 @@ impl syn::parse::Parse for FieldValue {
 
         let colon_token: Colon = parse_variant(input)?;
 
-        let value = if member_ident == "module" {
+        let value = if member_ident == "container" {
             let val: ExprKeyValue = parse_variant(input)?;
             Expr::Module(val)
         } else if member_ident == "bind" {
@@ -652,7 +659,7 @@ fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
     let module = app_struct
         .fields
         .iter()
-        .find(|f| &f.member.to_string() == "module");
+        .find(|f| &f.member.to_string() == "container");
 
     let module_path: Option<ExprKeyValue> = module.map_or(Ok(None), |m| match &m.expr {
         Expr::Module(module_path) => Ok(Some(module_path.clone())),

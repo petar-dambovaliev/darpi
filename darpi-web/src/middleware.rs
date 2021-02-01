@@ -14,7 +14,7 @@ where
 
     async fn call(
         p: &mut RequestParts,
-        module: std::sync::Arc<M>,
+        module: Arc<M>,
         b: &mut Body,
         ha: Self::HandlerArgs,
     ) -> Result<Self::Type, Self::Error>;
@@ -30,7 +30,7 @@ where
     type Type;
     async fn call(
         r: &mut Response<Body>,
-        module: std::sync::Arc<M>,
+        module: Arc<M>,
         ha: Self::HandlerArgs,
     ) -> Result<Self::Type, Self::Error>;
 }
