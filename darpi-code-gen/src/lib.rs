@@ -39,6 +39,16 @@ pub fn req_formatter(args: TokenStream, input: TokenStream) -> TokenStream {
     }
 }
 
+#[proc_macro_attribute]
+pub fn res_formatter(args: TokenStream, input: TokenStream) -> TokenStream {
+    let expr_lit: ExprLit = parse(args).unwrap();
+    let item_struct = parse_macro_input!(input as ItemStruct);
+    match logger::make_res_fmt(expr_lit, item_struct) {
+        Ok(r) => r,
+        Err(e) => e.into_compile_error().into(),
+    }
+}
+
 #[proc_macro]
 pub fn app(input: TokenStream) -> TokenStream {
     match app::make_app(input) {

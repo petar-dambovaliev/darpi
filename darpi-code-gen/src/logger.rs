@@ -1,7 +1,6 @@
 use logos;
-use logos::{Lexer, Logos};
-use proc_macro::Ident;
-use proc_macro2::{Span, TokenStream, TokenTree};
+use logos::Logos;
+use proc_macro2::Span;
 use quote::quote;
 use syn::{Error, ExprLit, ItemStruct, Lit};
 
@@ -64,7 +63,10 @@ pub enum RespFmtTok {
     Error,
 }
 
-pub fn make_res_fmt(expr_lit: ExprLit) -> Result<proc_macro::TokenStream, Error> {
+pub fn make_res_fmt(
+    expr_lit: ExprLit,
+    item_struct: ItemStruct,
+) -> Result<proc_macro::TokenStream, Error> {
     if let Lit::Str(str) = expr_lit.lit {
         let val = str.value();
         let mut lex = RespFmtTok::lexer(&val);
@@ -93,14 +95,71 @@ pub fn make_res_fmt(expr_lit: ExprLit) -> Result<proc_macro::TokenStream, Error>
                         content.push(now);
                     });
                 }
-                RespFmtTok::Took => {}
-                RespFmtTok::Status => {}
-                RespFmtTok::BodySize => {}
-                RespFmtTok::HeaderValue => {}
-                RespFmtTok::EnvValue => {}
-                RespFmtTok::Sep => {}
+                RespFmtTok::BodySize => {
+                    variables.push(quote! {
+                        let size = format!("body_size: {:#?}", b.size_hint());
+                        content.push(size);
+                    });
+                }
+                RespFmtTok::HeaderValue => {
+                    let variable = lex.slice();
+
+                    variables.push(quote! {
+                        if let Some(variable) = rp.headers.get(#variable) {
+                        let variable = format!(
+                            "{}: {}",
+                            #variable,
+                            variable.to_str().map_err(|_| "").expect("never to happen")
+                        );
+                        content.push(variable);
+                    }
+                    });
+                }
+                RespFmtTok::EnvValue => {
+                    let variable = lex.slice();
+
+                    variables.push(quote! {
+                        if let Ok(variable) = std::env::var(#variable) {
+                            content.push(format!("{}: {}", #variable, variable));
+                        }
+                    });
+                }
+                RespFmtTok::Sep => {
+                    let sep = lex.slice();
+
+                    variables.push(quote! {
+                        content.push(format!("{}", #sep));
+                    });
+                }
+                RespFmtTok::Status => {
+                    variables.push(quote! {
+                        content.push(format!("[status]: {}", r.status()));
+                    });
+                }
+                RespFmtTok::Took => {
+                    variables.push(quote! {
+                        content.push(format!("took: {:#?}", start.elapsed()));
+                    });
+                }
             }
         }
+
+        variables.push(quote! {
+            content.join(" ").into()
+        });
+
+        let name = &item_struct.ident;
+        let q = quote! {
+            #item_struct
+            impl darpi::RespFormatter for #name {
+                fn format_resp(&self, start: &Instant, r: &Response<Body>) -> String {
+                    use darpi::HttpBody;
+                    #(#variables )*
+                }
+            }
+        };
+        //panic!("{}", q.to_string());
+        return Ok(q.into());
     }
 
     Err(Error::new(

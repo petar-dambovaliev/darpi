@@ -1,6 +1,6 @@
 use crate::{Body, Response};
 use async_trait::async_trait;
-use http::request::{Parts as RequestParts, Parts};
+use http::request::Parts as RequestParts;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
