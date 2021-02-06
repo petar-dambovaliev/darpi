@@ -1,10 +1,12 @@
 #![forbid(unsafe_code)]
 
-pub use darpi_code_gen::{app, handler, middleware, req_formatter, resp_formatter, Path, Query};
+pub use darpi_code_gen::{
+    app, handler, job, middleware, req_formatter, resp_formatter, Path, Query,
+};
 pub use darpi_web::{
-    handler::Args, handler::Handler, logger, logger::ReqFormatter, logger::RespFormatter,
-    middleware::RequestMiddleware, middleware::ResponseMiddleware, request, response, xml::Xml,
-    yaml::Yaml, Json,
+    handler::Args, handler::Handler, job::RequestJob, job::ResponseJob, logger,
+    logger::ReqFormatter, logger::RespFormatter, middleware::RequestMiddleware,
+    middleware::ResponseMiddleware, request, response, xml::Xml, yaml::Yaml, Json,
 };
 
 pub use async_trait::async_trait;

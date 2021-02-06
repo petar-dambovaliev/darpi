@@ -217,6 +217,12 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         quote! {#module_ident.clone()}
     };
 
+    let dummy_where = if dummy_t.is_empty() {
+        quote! {}
+    } else {
+        quote! { where T: 'static + Send + Sync}
+    };
+
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
         trait #has_path_args {}
@@ -229,7 +235,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
 
         #[darpi::async_trait]
-        impl<'a #dummy_t> darpi::Handler<'a, #module_type> for #func_name {
+        impl<'a #dummy_t> darpi::Handler<'a, #module_type> for #func_name #dummy_where {
             async fn call(&self, args: &mut darpi::Args<'a, #module_type>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
                #[allow(unused_imports)]

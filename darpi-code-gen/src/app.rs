@@ -1,56 +1,40 @@
 use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
-use darpi_route::Route as DefRoute;
 use md5;
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span};
+use proc_macro2::Span;
 use quote::ToTokens;
 use quote::{format_ident, quote};
+use serde::Deserialize;
+use serde_json;
 use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use syn::parse::Parse;
-use syn::token::Token;
-use syn::{
-    braced, bracketed, parse::ParseStream, parse_quote::ParseQuote, punctuated::Punctuated,
-    token::Brace, token::Colon, token::Comma, token::FatArrow, Error, Expr as SynExpr, ExprCall,
-    ExprLit, ExprPath, Lit, LitStr, Member, Type,
-};
+use syn::{parse_str, Error, Expr as SynExpr, ExprCall, ExprLit, ExprPath, Type};
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
-    let app_struct: AppStruct =
-        syn::parse(input).unwrap_or_else(|e| panic!("app_struct: {:#?}", e));
-
-    let FieldResult {
-        address,
-        module_path,
-        handlers,
-        req_middlewares,
-        mut res_middlewares,
-    } = get_fields(app_struct)?;
-
-    let address_value = match address {
-        Address::LitStr(ls) => {
-            let address: std::net::SocketAddr = ls
-                .value()
-                .parse()
-                .expect(&format!("invalid server address: `{}`", ls.value()));
-            let s = format!("{}", address.to_string());
-            let q = quote! {#s};
-            q.to_token_stream()
-        }
-        Address::Ident(i) => {
-            let q = quote! {&#i};
-            q.to_token_stream()
+    let input_str = input.to_string();
+    let config: Config = match serde_json::from_str(&input_str) {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(Error::new(Span::call_site(), e.to_string())
+                .to_compile_error()
+                .into());
         }
     };
 
-    if handlers.is_empty() {
+    let address_value = {
+        let av = &config.address;
+        let q = quote! {&#av};
+        q.to_token_stream()
+    };
+
+    if config.handlers.is_empty() {
         return Err(Error::new(Span::call_site(), "no handlers registered")
             .to_compile_error()
             .into());
     }
 
-    let handler_len = handlers.len();
+    let handler_len = config.handlers.len();
+    let handlers: Vec<ExprHandler> = config.handlers.into_iter().map(|h| h.into()).collect();
+
     let HandlerTokens {
         routes,
         route_arg_assert,
@@ -77,35 +61,32 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         }
     };
 
-    let (module_def, module_let, module_self, mut middleware_req, mut middleware_res) =
-        module_path.map_or(Default::default(), |mp| {
-            let make_container_func = mp
-                .key
-                .path
-                .get_ident()
-                .expect("could not get container function");
-            let patj = mp
-                .value
-                .path
-                .get_ident()
-                .expect("could not get module_ident");
+    let (module_def, module_let, module_self) = config.container.map_or(Default::default(), |mp| {
+        let patj: ExprPath = parse_str(&mp.ttype).unwrap();
+        let make_container_func: ExprPath = parse_str(&mp.factory).unwrap();
 
-            let cloned = mp.value.path.get_ident().cloned();
+        (
+            quote! {module: std::sync::Arc<#patj>,},
+            quote! {let module = std::sync::Arc::new(#make_container_func());},
+            quote! {module: module,},
+        )
+    });
 
-            let map: HashMap<u64, Type> = HashMap::new();
-
+    let (mut middleware_req, mut middleware_res) =
+        config.middleware.map_or(Default::default(), |mut middleware| {
             let mut middleware_req = vec![];
             let mut middleware_res = vec![];
             let mut i = 0u16;
 
-            req_middlewares.iter().for_each(|e| {
+            middleware.request.iter().for_each(|e| {
+                let e: ExprCall = parse_str(e).unwrap();
                 let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
                 let mut sorter = 0_u16;
 
                 let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
                     if let SynExpr::Call(expr_call) = arg {
-                        if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                        if expr_call.func.to_token_stream().to_string() == "request" {
                             let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                             sorter += index;
                             let i_ident = format_ident!("m_arg_{}", index);
@@ -124,19 +105,20 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 i += 1;
             });
 
-            res_middlewares.iter_mut().for_each(|e| {
+            middleware.response.iter_mut().for_each(|e| {
+                let mut e: ExprCall = parse_str(e).unwrap();
                 let name = &e.func;
                 let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                 let mut sorter = 0_u16;
 
                 let m_args: Vec<proc_macro2::TokenStream> = e.args.iter_mut().map(|arg| {
                     if let SynExpr::Call(expr_call) = arg {
-                        if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                        if expr_call.func.to_token_stream().to_string() == "request" {
                             let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                             let i_ident = format_ident!("m_arg_{}", index);
                             return quote!{#i_ident.clone()};
                         }
-                        if expr_call.func.to_token_stream().to_string() == "res_middleware" {
+                        if expr_call.func.to_token_stream().to_string() == "response" {
                             let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                             sorter += index;
                             return quote!{#r_m_arg_ident.clone()};
@@ -145,12 +127,12 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                     if  let SynExpr::Tuple(tuple) = arg.clone() {
                         let tuple_expr: Vec<proc_macro2::TokenStream> = tuple.elems.iter().map(|tuple_arg| {
                             if let SynExpr::Call(expr_call) = tuple_arg {
-                                if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                                if expr_call.func.to_token_stream().to_string() == "request" {
                                     let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                                     let i_ident = format_ident!("m_arg_{}", index);
                                     return quote!{#i_ident.clone()};
                                 }
-                                if expr_call.func.to_token_stream().to_string() == "res_middleware" {
+                                if expr_call.func.to_token_stream().to_string() == "response" {
                                     let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                                     sorter += index;
                                     return quote!{#r_m_arg_ident.clone()};
@@ -173,9 +155,6 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             });
 
             (
-                quote! {module: std::sync::Arc<#patj>,},
-                quote! {let module = std::sync::Arc::new(#make_container_func());},
-                quote! {module: module,},
                 middleware_req,
                 middleware_res,
             )
@@ -220,9 +199,32 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 let module = self.module.clone();
                 let handlers = self.handlers.clone();
 
+                let (send_sync, mut recv_sync): (
+                std::sync::mpsc::Sender<fn()>,
+                std::sync::mpsc::Receiver<fn()>,
+            ) = std::sync::mpsc::channel();
+            let sync_job_executor = tokio::task::spawn_blocking(move || loop {
+                let job = match recv_sync.recv() {
+                    Ok(k) => k,
+                    Err(e) => return,
+                };
+                (job)()
+            });
+
+                let (send, mut recv) = tokio::sync::mpsc::unbounded_channel();
+                let job_executor = tokio::spawn(async move {
+                    loop {
+                        let job: Option<BoxFuture<()>> = recv.recv().await;
+                        if let Some(job) = job {
+                            job.await;
+                        }
+                    }
+                });
+
                 let make_svc = darpi::service::make_service_fn(move |_conn| {
                     let inner_module = std::sync::Arc::clone(&module);
                     let inner_handlers = std::sync::Arc::clone(&handlers);
+                    let inner_send = send.clone();
                     async move {
                         Ok::<_, std::convert::Infallible>(darpi::service::service_fn(move |r: darpi::Request<darpi::Body>| {
                             use darpi::futures::FutureExt;
@@ -234,6 +236,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                             use darpi::Handler;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
+                            let inner_send = inner_send.clone();
                             async move {
                                 let route = r.uri().path().to_string();
                                 let method = r.method().clone();
@@ -275,7 +278,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 });
 
                 let server = darpi::Server::bind(&address).serve(make_svc);
-                Ok(server.await?)
+                let res = async {
+                    tokio::join!(job_executor, sync_job_executor, server);
+                };
+                Ok(res.await)
              }
         }
     };
@@ -424,156 +430,55 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
     }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ExprKeyValue {
-    pub key: ExprPath,
-    pub sep: FatArrow,
-    pub value: ExprPath,
+#[derive(Debug, Deserialize)]
+struct Container {
+    factory: String,
+    #[serde(alias = "type")]
+    ttype: String,
 }
 
-impl syn::parse::Parse for ExprKeyValue {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let key: ExprPath = input.parse()?;
-        let sep: FatArrow = input.parse()?;
-        let value: ExprPath = input.parse()?;
-        Ok(Self { key, sep, value })
-    }
+#[derive(Debug, Deserialize)]
+struct Jobs {
+    pub request: Vec<String>,
+    pub response: Vec<String>,
 }
 
-#[derive(Debug)]
-enum Expr {
-    ExprArrayHandler(ExprArrayHandler),
-    Module(ExprKeyValue),
-    ExprLit(ExprLit),
-    ExprPath(ExprPath),
-    Ident(Ident),
-    Punctuated(Punctuated<ExprCall, Comma>),
+#[derive(Debug, Deserialize)]
+struct Middleware {
+    pub request: Vec<String>,
+    pub response: Vec<String>,
 }
 
-#[derive(Debug)]
-struct FieldValue {
-    pub member: Ident,
-    pub colon_token: Colon,
-    pub expr: Expr,
+#[derive(Debug, Deserialize)]
+struct Handler {
+    pub route: String,
+    pub method: String,
+    pub handler: String,
 }
 
-fn parse_variant<T>(input: ParseStream) -> Result<T, Error>
-where
-    T: Parse,
-{
-    let val: T = match input.parse() {
-        Ok(m) => m,
-        Err(e) => {
-            let name = std::any::type_name::<T>();
-            return Err(Error::new(
-                Span::call_site(),
-                format!("could not parse {}: {}", name, e),
-            ));
+impl Into<ExprHandler> for Handler {
+    fn into(self) -> ExprHandler {
+        let route = format!(r#""{}""#, &self.route);
+
+        let route: ExprLit = parse_str(&route).unwrap();
+        let method: ExprPath = parse_str(&self.method).unwrap();
+        let handler: ExprPath = parse_str(&self.handler).unwrap();
+
+        ExprHandler {
+            route,
+            method,
+            handler,
         }
-    };
-    Ok(val)
-}
-
-impl syn::parse::Parse for FieldValue {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let member: Member = parse_variant(input)?;
-
-        let member_ident = if let Member::Named(ident) = member {
-            ident
-        } else {
-            return Err(Error::new(
-                Span::call_site(),
-                format!("tuples are not supported"),
-            ));
-        };
-
-        let colon_token: Colon = parse_variant(input)?;
-
-        let value = if member_ident == "container" {
-            let val: ExprKeyValue = parse_variant(input)?;
-            Expr::Module(val)
-        } else if member_ident == "bind" {
-            let val: ExprArrayHandler = parse_variant(input)?;
-            Expr::ExprArrayHandler(val)
-        } else if member_ident == "route" {
-            let val: ExprLit = parse_variant(input)?;
-
-            match &val.lit {
-                Lit::Str(lit) => {
-                    match DefRoute::try_from(lit.value().as_str()) {
-                        Ok(_) => {}
-                        Err(e) => return Err(Error::new(Span::call_site(), e)),
-                    };
-                    Expr::ExprLit(val)
-                }
-                _ => return Err(Error::new(Span::call_site(), "invalid route")),
-            }
-        } else if member_ident == "address" {
-            if Ident::peek(input.cursor()) {
-                let val: Ident = parse_variant(input)?;
-                Expr::Ident(val)
-            } else {
-                let val: ExprLit = parse_variant(input)?;
-                Expr::ExprLit(val)
-            }
-        } else if member_ident == "method" {
-            let val: ExprPath = parse_variant(input)?;
-            Expr::ExprPath(val)
-        } else if member_ident == "handler" {
-            let val: ExprPath = parse_variant(input)?;
-            Expr::ExprPath(val)
-        } else if member_ident == "req_middleware" || member_ident == "res_middleware" {
-            let content;
-            let _ = bracketed!(content in input);
-            let val: Punctuated<ExprCall, Comma> = Punctuated::parse(&content)?;
-            Expr::Punctuated(val)
-        } else {
-            return Err(Error::new(
-                Span::call_site(),
-                format!("unknown member: {}", member_ident),
-            ));
-        };
-
-        Ok(FieldValue {
-            member: member_ident,
-            colon_token,
-            expr: value,
-        })
     }
 }
 
-#[derive(Debug)]
-struct AppStruct {
-    pub brace_token: Brace,
-    pub fields: Punctuated<FieldValue, Comma>,
-}
-
-impl syn::parse::Parse for AppStruct {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let content;
-        let brace_token = braced!(content in input);
-        let fields: Punctuated<FieldValue, Comma> = Punctuated::parse(ParseStream::from(&content))?;
-
-        Ok(Self {
-            brace_token,
-            fields,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct ExprArrayHandler {
-    elements: Punctuated<ExprHandler, Comma>,
-}
-
-impl syn::parse::Parse for ExprArrayHandler {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let content;
-        let _ = bracketed!(content in input);
-        let elements: Punctuated<ExprHandler, Comma> = Punctuated::parse(&content)?;
-
-        Ok(Self { elements })
-    }
+#[derive(Debug, Deserialize)]
+struct Config {
+    pub address: String,
+    pub container: Option<Container>,
+    pub jobs: Option<Jobs>,
+    pub middleware: Option<Middleware>,
+    pub handlers: Vec<Handler>,
 }
 
 #[derive(Debug, Clone)]
@@ -581,186 +486,4 @@ struct ExprHandler {
     route: ExprLit,
     method: ExprPath,
     handler: ExprPath,
-}
-
-impl syn::parse::Parse for ExprHandler {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let content;
-        let _ = braced!(content in input);
-        let fields: Punctuated<FieldValue, Comma> = Punctuated::parse(ParseStream::from(&content))?;
-
-        let route = fields
-            .iter()
-            .find(|f| &f.member == "route")
-            .expect("could not get route");
-
-        let method = fields
-            .iter()
-            .find(|f| &f.member == "method")
-            .expect("could not get method");
-
-        let handler = fields
-            .iter()
-            .find(|f| &f.member == "handler")
-            .expect("could not get handler");
-
-        let route = match &route.expr {
-            Expr::ExprLit(el) => el.clone(),
-            _ => {
-                return Err(Error::new(
-                    Span::call_site(),
-                    "expected route to be a &str literal",
-                ));
-            }
-        };
-
-        let method = match &method.expr {
-            Expr::ExprPath(el) => el.clone(),
-            _ => {
-                return Err(Error::new(
-                    Span::call_site(),
-                    "expected method to be an identifier",
-                ));
-            }
-        };
-
-        let handler = match &handler.expr {
-            Expr::ExprPath(el) => el.clone(),
-            _ => {
-                return Err(Error::new(
-                    Span::call_site(),
-                    "expected handler to be an identifier",
-                ))
-            }
-        };
-
-        Ok(Self {
-            route,
-            method,
-            handler,
-        })
-    }
-}
-
-struct FieldResult {
-    address: Address,
-    module_path: Option<ExprKeyValue>,
-    handlers: Vec<ExprHandler>,
-    req_middlewares: Punctuated<ExprCall, Comma>,
-    res_middlewares: Punctuated<ExprCall, Comma>,
-}
-
-enum Address {
-    LitStr(LitStr),
-    Ident(Ident),
-}
-
-fn get_fields(app_struct: AppStruct) -> Result<FieldResult, TokenStream> {
-    let module = app_struct
-        .fields
-        .iter()
-        .find(|f| &f.member.to_string() == "container");
-
-    let module_path: Option<ExprKeyValue> = module.map_or(Ok(None), |m| match &m.expr {
-        Expr::Module(module_path) => Ok(Some(module_path.clone())),
-        _ => {
-            return Err(Error::new(
-                Span::call_site(),
-                "module should be a path to the DI module definition",
-            )
-            .to_compile_error()
-            .to_token_stream())
-        }
-    })?;
-
-    let handlers = app_struct
-        .fields
-        .iter()
-        .find(|f| &f.member.to_string() == "bind")
-        .expect("missing handlers");
-
-    let handlers = match &handlers.expr {
-        Expr::ExprArrayHandler(array_expr) => {
-            let mut r = vec![];
-            array_expr.elements.iter().for_each(|e| r.push(e.clone()));
-            r
-        }
-        _ => {
-            return Err(
-                Error::new(Span::call_site(), "handlers should be an array literal")
-                    .to_compile_error()
-                    .into(),
-            )
-        }
-    };
-
-    let address_field = app_struct
-        .fields
-        .iter()
-        .find(|f| &f.member.to_string() == "address")
-        .expect("missing handlers");
-
-    let req_middleware_field = app_struct
-        .fields
-        .iter()
-        .find(|f| &f.member.to_string() == "req_middleware")
-        .expect("missing middleware");
-
-    let req_middlewares = match &req_middleware_field.expr {
-        Expr::Punctuated(middlewares) => middlewares.clone(),
-        _ => {
-            return Err(
-                Error::new(Span::call_site(), "middleware should be an array literal")
-                    .to_compile_error()
-                    .into(),
-            )
-        }
-    };
-
-    let res_middleware_field = app_struct
-        .fields
-        .iter()
-        .find(|f| &f.member.to_string() == "res_middleware")
-        .expect("missing middleware");
-
-    let res_middlewares = match &res_middleware_field.expr {
-        Expr::Punctuated(middlewares) => middlewares.clone(),
-        _ => {
-            return Err(
-                Error::new(Span::call_site(), "middleware should be an array literal")
-                    .to_compile_error()
-                    .into(),
-            )
-        }
-    };
-
-    let address = match &address_field.expr {
-        Expr::ExprLit(lit) => match lit.lit.clone() {
-            Lit::Str(str) => Address::LitStr(str),
-            _ => {
-                return Err(Error::new(
-                    Span::call_site(),
-                    "server address should be a &str literal",
-                )
-                .to_compile_error()
-                .into())
-            }
-        },
-        Expr::Ident(i) => Address::Ident(i.clone()),
-        _ => {
-            return Err(
-                Error::new(Span::call_site(), "server address should be a &str literal")
-                    .to_compile_error()
-                    .into(),
-            )
-        }
-    };
-
-    Ok(FieldResult {
-        address,
-        module_path,
-        handlers,
-        req_middlewares,
-        res_middlewares,
-    })
 }

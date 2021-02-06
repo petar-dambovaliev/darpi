@@ -2,6 +2,7 @@
 
 mod app;
 mod handler;
+mod job;
 mod logger;
 mod middleware;
 mod request;
@@ -27,6 +28,11 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn middleware(args: TokenStream, input: TokenStream) -> TokenStream {
     middleware::make_middleware(args, input)
+}
+
+#[proc_macro_attribute]
+pub fn job(args: TokenStream, input: TokenStream) -> TokenStream {
+    job::make_job(args, input)
 }
 
 #[proc_macro_attribute]
