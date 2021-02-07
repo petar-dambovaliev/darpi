@@ -296,12 +296,11 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             ) = std::sync::mpsc::channel();
 
             let sync_job_executor = tokio::task::spawn_blocking(move || loop {
-                match recv_sync.try_recv() {
+                match recv_sync.recv() {
                     Ok(k) => (k)(),
-                    Err(e) => {
-                        if let std::sync::mpsc::TryRecvError::Disconnected = e {
-                            return;
-                        }
+                    Err(_) => {
+                        println!("finished sync_job_executor");
+                        return;
                     }
                 };
             });
@@ -311,13 +310,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 loop {
                     let job: Result<BoxFuture<()>, _> = recv.try_recv();
 
-                    match job {
-                        Ok(j) => j.await,
-                        Err(e) => {
-                            if let tokio::sync::mpsc::error::TryRecvError::Closed = e {
-                                return;
-                            }
-                        }
+                    let j: Option<BoxFuture<()>> = recv.recv().await;
+                    match j {
+                        Some(j) => j.await,
+                        None => return,
                     }
                 }
             });
@@ -375,7 +371,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                     #(#middleware_res )*
                                     #(#jobs_res )*
                                 }
-
+                                println!("sending response");
                                 rb
                             }
                         }))

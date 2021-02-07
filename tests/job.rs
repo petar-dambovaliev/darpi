@@ -31,7 +31,22 @@ async fn first_async_job() -> job::ReturnType {
 
 #[job(Response)]
 async fn first_sync_job() -> job::ReturnType {
-    job::ReturnType::Fn(|| println!("first sync job in the background."))
+    println!("first_sync_job start");
+    job::ReturnType::Fn(|| {
+        let mut r = 0;
+        for i in 0..10000000 {
+            r += 1;
+        }
+        let mut r = 0;
+        for i in 0..10000000 {
+            r += 1;
+        }
+        let mut r = 0;
+        for i in 0..10000000 {
+            r += 1;
+        }
+        println!("first sync job in the background. {}", r)
+    })
 }
 
 //todo implement the ... operator for middleware slicing
