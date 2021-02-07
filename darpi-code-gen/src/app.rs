@@ -4,14 +4,33 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::ToTokens;
 use quote::{format_ident, quote};
+use regex::Regex;
 use serde::Deserialize;
 use serde_json;
 use std::cmp::Ordering;
-use syn::{parse_str, Error, Expr as SynExpr, ExprCall, ExprLit, ExprPath, Type};
+use syn::{parse_str, Error, Expr as SynExpr, ExprCall, ExprLit, ExprPath, Path, Type};
 
 pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
     let input_str = input.to_string();
-    let config: Config = match serde_json::from_str(&input_str) {
+    let re = Regex::new(r#"(["]method["]\s*[:]\s*)([^,\n]+)([,]?\s+)"#).unwrap();
+    let result = re.replace(&input_str, r#"${1} "${2}" ${3}"#);
+
+    let re = Regex::new(r#"([\[,]\s*)([a-z_A-Z]+[a-z_0-9A-Z()"]+(::[a-z_0-9A-Z()"]+)*)"#).unwrap();
+    let result = re.replace_all(&result, r#"${1} "${2}""#);
+
+    let re = Regex::new(r#"(["]factory["]\s*[:]\s*)([^,\n]+)([,]?\s+)"#).unwrap();
+    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
+
+    let re = Regex::new(r#"(["]type["]\s*[:]\s*)([^,\n}]+)([},]?\s+)"#).unwrap();
+    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
+
+    let re = Regex::new(r#"(["]handler["]\s*[:]\s*)([^,\n]+)([,]?\s+)"#).unwrap();
+    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
+
+    let re = Regex::new(r#"(["]address["]\s*[:]\s*)([^,\n"]+)([,]?\s+)"#).unwrap();
+    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
+
+    let config: Config = match serde_json::from_str(&result) {
         Ok(c) => c,
         Err(e) => {
             return Err(Error::new(Span::call_site(), e.to_string())
@@ -160,6 +179,78 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             )
         });
 
+    let (jobs_req, jobs_res) =
+        config.jobs.map_or(Default::default(), |mut jobs| {
+            let mut jobs_req = vec![];
+            let mut jobs_res = vec![];
+
+            jobs.request.iter().for_each(|e| {
+                let expr_call: Result<ExprCall, _> = parse_str(e);
+
+                let (name, m_args) = match expr_call {
+                    Ok(e) => {
+                        let name = e.func.to_token_stream();
+                        let mut m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| { quote! {#arg} }).collect();
+                        if  m_args.is_empty() {
+                            m_args = vec![quote!{()}];
+                        }
+
+                        (name, m_args)
+                    },
+                    Err(_) => {
+                        let name: Path = parse_str(e).unwrap();
+                        (name.to_token_stream(), vec![quote!{()}])
+                    }
+                };
+
+                jobs_req.push(quote! {
+                    match #name::call(&mut parts, inner_module.clone(), &mut body, #(#m_args ,)*).await {
+                        darpi::job::ReturnType::Fn(function) => {
+                            inner_send_sync.send(function);
+                        }
+                        darpi::job::ReturnType::Future(fut) => {
+                            inner_send.send(fut);
+                        }
+                    };
+                });
+            });
+
+            jobs.response.iter_mut().for_each(|e| {
+                let expr_call: Result<ExprCall, _> = parse_str(e);
+
+                let (name, m_args) = match expr_call {
+                    Ok(e) => {
+                        let name = e.func.to_token_stream();
+                        let mut m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| { quote! {#arg} }).collect();
+                        if  m_args.is_empty() {
+                            m_args = vec![quote!{()}];
+                        }
+                        (name, m_args)
+                    },
+                    Err(_) => {
+                        let name: Path = parse_str(e).unwrap();
+                        (name.to_token_stream(), vec![quote!{()}])
+                    }
+                };
+
+                jobs_res.push( quote! {
+                    match #name::call(&mut rb, inner_module.clone(), #(#m_args ,)* ).await {
+                        darpi::job::ReturnType::Fn(function) => {
+                            inner_send_sync.send(function);
+                        }
+                        darpi::job::ReturnType::Future(fut) => {
+                            inner_send.send(fut);
+                        }
+                    };
+                });
+            });
+
+            (
+                jobs_req,
+                jobs_res,
+            )
+        });
+
     middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
     middleware_res.sort_by(|a, b| a.0.cmp(&b.0));
 
@@ -203,28 +294,39 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                 std::sync::mpsc::Sender<fn()>,
                 std::sync::mpsc::Receiver<fn()>,
             ) = std::sync::mpsc::channel();
+
             let sync_job_executor = tokio::task::spawn_blocking(move || loop {
-                let job = match recv_sync.recv() {
-                    Ok(k) => k,
-                    Err(e) => return,
+                match recv_sync.try_recv() {
+                    Ok(k) => (k)(),
+                    Err(e) => {
+                        if let std::sync::mpsc::TryRecvError::Disconnected = e {
+                            return;
+                        }
+                    }
                 };
-                (job)()
             });
 
                 let (send, mut recv) = tokio::sync::mpsc::unbounded_channel();
                 let job_executor = tokio::spawn(async move {
-                    loop {
-                        let job: Option<BoxFuture<()>> = recv.recv().await;
-                        if let Some(job) = job {
-                            job.await;
+                loop {
+                    let job: Result<BoxFuture<()>, _> = recv.try_recv();
+
+                    match job {
+                        Ok(j) => j.await,
+                        Err(e) => {
+                            if let tokio::sync::mpsc::error::TryRecvError::Closed = e {
+                                return;
+                            }
                         }
                     }
-                });
+                }
+            });
 
                 let make_svc = darpi::service::make_service_fn(move |_conn| {
                     let inner_module = std::sync::Arc::clone(&module);
                     let inner_handlers = std::sync::Arc::clone(&handlers);
                     let inner_send = send.clone();
+                    let inner_send_sync = send_sync.clone();
                     async move {
                         Ok::<_, std::convert::Infallible>(darpi::service::service_fn(move |r: darpi::Request<darpi::Body>| {
                             use darpi::futures::FutureExt;
@@ -237,6 +339,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
                             let inner_send = inner_send.clone();
+                            let inner_send_sync = inner_send_sync.clone();
                             async move {
                                 let route = r.uri().path().to_string();
                                 let method = r.method().clone();
@@ -244,6 +347,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                 let (mut parts, mut body) = r.into_parts();
 
                                 #(#middleware_req )*
+                                #(#jobs_req )*
 
                                 let mut handler = None;
                                 for rp in inner_handlers.iter() {
@@ -269,6 +373,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
 
                                 if let Ok(mut rb) = rb.as_mut() {
                                     #(#middleware_res )*
+                                    #(#jobs_res )*
                                 }
 
                                 rb

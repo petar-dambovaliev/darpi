@@ -1,10 +1,11 @@
 use darpi::{app, handler, job, Error, Method, Path, Query, RequestJob, ResponseJob};
 use env_logger;
-use futures_util::future::{BoxFuture, LocalBoxFuture};
+use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use shaku::module;
-use std::convert::Infallible;
+use tokio::sync::mpsc::error::TryRecvError;
+use tokio::sync::mpsc::UnboundedSender;
 
 fn make_container() -> Container {
     let module = Container::builder().build();
@@ -24,8 +25,13 @@ pub struct Name {
 }
 
 #[job(Request)]
-async fn first_job() -> LocalBoxFuture<'static, ()> {
-    Box::pin(async { println!("first job in the background.") }.boxed_local())
+async fn first_async_job() -> job::ReturnType {
+    job::ReturnType::Future(async { println!("first job in the background.") }.boxed())
+}
+
+#[job(Response)]
+async fn first_sync_job() -> job::ReturnType {
+    job::ReturnType::Fn(|| println!("first sync job in the background."))
 }
 
 //todo implement the ... operator for middleware slicing
@@ -36,19 +42,18 @@ async fn hello_world() -> String {
 
 //RUST_LOG=darpi=info cargo test --test inject -- --nocapture
 //#[tokio::test]
-#[tokio::main]
+#[tokio::test]
 async fn main() -> Result<(), darpi::Error> {
     env_logger::builder().is_test(true).try_init().unwrap();
-
     app!({
         "address": "127.0.0.1:3000",
         "container": {
-            "factory": "make_container",
-            "type": "Container"
+            "factory": make_container,
+            "type": Container
         },
         "jobs": {
-            "request": [],
-            "response": []
+            "request": [first_async_job],
+            "response": [first_sync_job]
         },
         "middleware": {
             "request": [],
@@ -56,8 +61,8 @@ async fn main() -> Result<(), darpi::Error> {
         },
         "handlers": [{
             "route": "/hello_world",
-            "method": "Method::GET",
-            "handler": "hello_world"
+            "method": Method::GET,
+            "handler": hello_world
         }]
     })
     .run()

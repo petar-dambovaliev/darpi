@@ -50,45 +50,6 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
         Default::default()
     };
 
-    let mut resolve_call = quote! {Ok(Self::#name#func_gen_call(#(#give ,)*).await?)};
-    let mut k = Default::default();
-    let mut e = Default::default();
-
-    match &func.sig.output {
-        ReturnType::Default => {
-            resolve_call = quote! {
-                #resolve_call;
-                Ok(())
-            };
-            k = quote! {()};
-            e = quote! {std::convert::Infallible};
-        }
-        ReturnType::Type(_, t) => {
-            if let Type::Path(tp) = *t.clone() {
-                let last = tp.path.segments.last().unwrap();
-                if let PathArguments::AngleBracketed(ab) = &last.arguments {
-                    if last.ident == "Result" {
-                        assert_eq!(ab.args.len(), 2);
-                        k = ab.args[0].to_token_stream();
-                        e = ab.args[1].to_token_stream();
-                    } else if last.ident == "Option" {
-                        assert_eq!(ab.args.len(), 1);
-                        k = ab.args[0].to_token_stream();
-                        e = quote! {std::convert::Infallible};
-                    }
-                }
-            }
-        }
-    }
-
-    if e.is_empty() {
-        panic!("cannot find error type")
-    }
-
-    if k.is_empty() {
-        panic!("cannot find type")
-    }
-
     let where_module = match where_clause.is_empty() {
         true => Default::default(),
         false => {
@@ -147,17 +108,15 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     #bounds
                 {
                     type HandlerArgs = #handler_t;
-                    type Error = #e;
-                    type Future = #k;
 
                     async fn call(
                         p: &mut darpi::RequestParts,
                         module: std::sync::Arc<C>,
                         b: &mut darpi::Body,
                         ha: Self::HandlerArgs,
-                    ) -> Result<Self::Future, Self::Error> {
+                    ) -> darpi::job::ReturnType {
                         #(#make )*
-                        #resolve_call
+                        Self::#name#func_gen_call(#(#give ,)*).await
                     }
                 }
             }
@@ -178,16 +137,14 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     #bounds
                 {
                     type HandlerArgs = #handler_t;
-                    type Error = #e;
-                    type Future = #k;
 
                     async fn call(
-                        r: &mut darpi::Response<Body>,
+                        r: &mut darpi::Response<darpi::Body>,
                         module: std::sync::Arc<C>,
                         ha: Self::HandlerArgs,
-                    ) -> Result<Self::Future, Self::Error> {
+                    ) -> darpi::job::ReturnType {
                         #(#make )*
-                        #resolve_call
+                        Self::#name#func_gen_call(#(#give ,)*).await
                     }
                 }
             }
