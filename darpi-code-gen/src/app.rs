@@ -179,77 +179,85 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             )
         });
 
-    let (jobs_req, jobs_res) =
-        config.jobs.map_or(Default::default(), |mut jobs| {
-            let mut jobs_req = vec![];
-            let mut jobs_res = vec![];
+    let (jobs_req, jobs_res) = config.jobs.map_or(Default::default(), |mut jobs| {
+        let mut jobs_req = vec![];
+        let mut jobs_res = vec![];
 
-            jobs.request.iter().for_each(|e| {
-                let expr_call: Result<ExprCall, _> = parse_str(e);
+        jobs.request.iter().for_each(|e| {
+            let expr_call: Result<ExprCall, _> = parse_str(e);
 
-                let (name, m_args) = match expr_call {
-                    Ok(e) => {
-                        let name = e.func.to_token_stream();
-                        let mut m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| { quote! {#arg} }).collect();
-                        if  m_args.is_empty() {
-                            m_args = vec![quote!{()}];
-                        }
+            let (name, m_args) = match expr_call {
+                Ok(e) => {
+                    let name = e.func.to_token_stream();
+                    let mut m_args: Vec<proc_macro2::TokenStream> = e
+                        .args
+                        .iter()
+                        .map(|arg| {
+                            quote! {#arg}
+                        })
+                        .collect();
+                    if m_args.is_empty() {
+                        m_args = vec![quote! {()}];
+                    }
 
-                        (name, m_args)
-                    },
-                    Err(_) => {
-                        let name: Path = parse_str(e).unwrap();
-                        (name.to_token_stream(), vec![quote!{()}])
+                    (name, m_args)
+                }
+                Err(_) => {
+                    let name: Path = parse_str(e).unwrap();
+                    (name.to_token_stream(), vec![quote! {()}])
+                }
+            };
+
+            jobs_req.push(quote! {
+                match #name::call(&parts, inner_module.clone(), &body, #(#m_args ,)*).await {
+                    darpi::job::ReturnType::Fn(function) => {
+                        inner_send_sync.send(function);
+                    }
+                    darpi::job::ReturnType::Future(fut) => {
+                        inner_send.send(fut);
                     }
                 };
-
-                jobs_req.push(quote! {
-                    match #name::call(&mut parts, inner_module.clone(), &mut body, #(#m_args ,)*).await {
-                        darpi::job::ReturnType::Fn(function) => {
-                            inner_send_sync.send(function);
-                        }
-                        darpi::job::ReturnType::Future(fut) => {
-                            inner_send.send(fut);
-                        }
-                    };
-                });
             });
-
-            jobs.response.iter_mut().for_each(|e| {
-                let expr_call: Result<ExprCall, _> = parse_str(e);
-
-                let (name, m_args) = match expr_call {
-                    Ok(e) => {
-                        let name = e.func.to_token_stream();
-                        let mut m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| { quote! {#arg} }).collect();
-                        if  m_args.is_empty() {
-                            m_args = vec![quote!{()}];
-                        }
-                        (name, m_args)
-                    },
-                    Err(_) => {
-                        let name: Path = parse_str(e).unwrap();
-                        (name.to_token_stream(), vec![quote!{()}])
-                    }
-                };
-
-                jobs_res.push( quote! {
-                    match #name::call(&mut rb, inner_module.clone(), #(#m_args ,)* ).await {
-                        darpi::job::ReturnType::Fn(function) => {
-                            inner_send_sync.send(function);
-                        }
-                        darpi::job::ReturnType::Future(fut) => {
-                            inner_send.send(fut);
-                        }
-                    };
-                });
-            });
-
-            (
-                jobs_req,
-                jobs_res,
-            )
         });
+
+        jobs.response.iter_mut().for_each(|e| {
+            let expr_call: Result<ExprCall, _> = parse_str(e);
+
+            let (name, m_args) = match expr_call {
+                Ok(e) => {
+                    let name = e.func.to_token_stream();
+                    let mut m_args: Vec<proc_macro2::TokenStream> = e
+                        .args
+                        .iter()
+                        .map(|arg| {
+                            quote! {#arg}
+                        })
+                        .collect();
+                    if m_args.is_empty() {
+                        m_args = vec![quote! {()}];
+                    }
+                    (name, m_args)
+                }
+                Err(_) => {
+                    let name: Path = parse_str(e).unwrap();
+                    (name.to_token_stream(), vec![quote! {()}])
+                }
+            };
+
+            jobs_res.push(quote! {
+                match #name::call(&rb, inner_module.clone(), #(#m_args ,)* ).await {
+                    darpi::job::ReturnType::Fn(function) => {
+                        inner_send_sync.send(function);
+                    }
+                    darpi::job::ReturnType::Future(fut) => {
+                        inner_send.send(fut);
+                    }
+                };
+            });
+        });
+
+        (jobs_req, jobs_res)
+    });
 
     middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
     middleware_res.sort_by(|a, b| a.0.cmp(&b.0));

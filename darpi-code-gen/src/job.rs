@@ -110,9 +110,9 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     type HandlerArgs = #handler_t;
 
                     async fn call(
-                        p: &mut darpi::RequestParts,
+                        p: &darpi::RequestParts,
                         module: std::sync::Arc<C>,
-                        b: &mut darpi::Body,
+                        b: &darpi::Body,
                         ha: Self::HandlerArgs,
                     ) -> darpi::job::ReturnType {
                         #(#make )*
@@ -139,7 +139,7 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     type HandlerArgs = #handler_t;
 
                     async fn call(
-                        r: &mut darpi::Response<darpi::Body>,
+                        r: &darpi::Response<darpi::Body>,
                         module: std::sync::Arc<C>,
                         ha: Self::HandlerArgs,
                     ) -> darpi::job::ReturnType {

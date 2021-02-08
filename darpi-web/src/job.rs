@@ -11,12 +11,7 @@ where
     C: 'static + Sync + Send,
 {
     type HandlerArgs;
-    async fn call(
-        p: &mut RequestParts,
-        module: Arc<C>,
-        b: &mut Body,
-        ha: Self::HandlerArgs,
-    ) -> ReturnType;
+    async fn call(p: &RequestParts, module: Arc<C>, b: &Body, ha: Self::HandlerArgs) -> ReturnType;
 }
 
 #[async_trait]
@@ -25,7 +20,7 @@ where
     C: 'static + Sync + Send,
 {
     type HandlerArgs;
-    async fn call(r: &mut Response<Body>, module: Arc<C>, ha: Self::HandlerArgs) -> ReturnType;
+    async fn call(r: &Response<Body>, module: Arc<C>, ha: Self::HandlerArgs) -> ReturnType;
 }
 
 pub enum ReturnType {
