@@ -211,10 +211,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             jobs_req.push(quote! {
                 match #name::call(&parts, inner_module.clone(), &body, #(#m_args ,)*).await {
                     darpi::job::ReturnType::Fn(function) => {
-                        inner_send_sync.send(function);
+                        inner_send_sync.send(function).unwrap_or(());
                     }
                     darpi::job::ReturnType::Future(fut) => {
-                        inner_send.send(fut);
+                        inner_send.send(fut).unwrap_or(());
                     }
                 };
             });
@@ -247,10 +247,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             jobs_res.push(quote! {
                 match #name::call(&rb, inner_module.clone(), #(#m_args ,)* ).await {
                     darpi::job::ReturnType::Fn(function) => {
-                        inner_send_sync.send(function);
+                        inner_send_sync.send(function).unwrap_or(());
                     }
                     darpi::job::ReturnType::Future(fut) => {
-                        inner_send.send(fut);
+                        inner_send.send(fut).unwrap_or(());
                     }
                 };
             });
@@ -306,10 +306,7 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             let sync_job_executor = tokio::task::spawn_blocking(move || loop {
                 match recv_sync.recv() {
                     Ok(k) => (k)(),
-                    Err(_) => {
-                        println!("finished sync_job_executor");
-                        return;
-                    }
+                    Err(_) => return,
                 };
             });
 
@@ -388,7 +385,10 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
 
                 let server = darpi::Server::bind(&address).serve(make_svc);
                 let res = async {
-                    tokio::join!(job_executor, sync_job_executor, server);
+                let (r1, r2, r3) = tokio::join!(job_executor, sync_job_executor, server);
+                    r1.unwrap();
+                    r2.unwrap();
+                    r3.unwrap();
                 };
                 Ok(res.await)
              }

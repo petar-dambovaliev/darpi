@@ -4,8 +4,6 @@ use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use shaku::module;
-use tokio::sync::mpsc::error::TryRecvError;
-use tokio::sync::mpsc::UnboundedSender;
 
 fn make_container() -> Container {
     let module = Container::builder().build();
