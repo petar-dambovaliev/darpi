@@ -1,4 +1,8 @@
-use darpi::{app, handler, job, Error, Method, Path, Query, RequestJob, ResponseJob};
+use darpi::{
+    app, handler, job, req_formatter, resp_formatter, Error, Method, Path, Query, RequestJob,
+    ResponseJob,
+};
+use darpi_middleware::{log_request, log_response};
 use env_logger;
 use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
@@ -53,29 +57,33 @@ async fn hello_world() -> String {
     format!("{}", 123)
 }
 
+#[resp_formatter("%a")]
+#[req_formatter("%a")]
+struct LogFormatter;
+
 //RUST_LOG=darpi=info cargo test --test inject -- --nocapture
 //#[tokio::test]
 #[tokio::test]
 async fn main() -> Result<(), darpi::Error> {
     env_logger::builder().is_test(true).try_init().unwrap();
     app!({
-        "address": "127.0.0.1:3000",
-        "container": {
-            "factory": make_container,
-            "type": Container
+        address: "127.0.0.1:3000",
+        container : {
+            factory: make_container,
+            type: Container
         },
-        "jobs": {
-            "request": [first_async_job],
-            "response": [first_sync_job]
+        jobs: {
+            request: [first_async_job],
+            response: [first_sync_job]
         },
-        "middleware": {
-            "request": [],
-            "response": []
+        middleware: {
+            request: [log_request(LogFormatter)],
+            response: [log_response(LogFormatter, request(0))]
         },
-        "handlers": [{
-            "route": "/hello_world",
-            "method": Method::GET,
-            "handler": hello_world
+        handlers: [{
+            route: "/hello_world",
+            method: Method::GET,
+            handler: hello_world
         }]
     })
     .run()

@@ -57,8 +57,9 @@ pub fn resp_formatter(args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn app(input: TokenStream) -> TokenStream {
-    match app::make_app(input) {
+    let config = parse_macro_input!(input as app::Config);
+    match app::make_app(config) {
         Ok(r) => r,
-        Err(e) => e,
+        Err(e) => e.into_compile_error().into(),
     }
 }

@@ -125,7 +125,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     get_req_middleware_arg(e, &mut sorter, m.len());
 
                 middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, #(#m_args ,)*).await {
+                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, (#(#m_args ,)*)).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };

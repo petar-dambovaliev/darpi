@@ -4,55 +4,30 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::ToTokens;
 use quote::{format_ident, quote};
-use regex::Regex;
-use serde::Deserialize;
-use serde_json;
 use std::cmp::Ordering;
-use syn::{parse_str, Error, Expr as SynExpr, ExprCall, ExprLit, ExprPath, Path, Type};
+use syn::parse::{Error as SynError, Parse, ParseStream, Result as SynResult};
+use syn::parse_quote::ParseQuote;
+use syn::{
+    braced, bracketed, punctuated::Punctuated, token, Error, Expr as SynExpr, ExprCall, ExprLit,
+    ExprPath, Ident, LitStr,
+};
 
-pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
-    let input_str = input.to_string();
-    let re = Regex::new(r#"(["]method["]\s*[:]\s*)([^,\n]+)([,]?\s+)"#).unwrap();
-    let result = re.replace(&input_str, r#"${1} "${2}" ${3}"#);
-
-    let re = Regex::new(r#"([\[,]\s*)([a-z_A-Z]+[a-z_0-9A-Z()"]+(::[a-z_0-9A-Z()"]+)*)"#).unwrap();
-    let result = re.replace_all(&result, r#"${1} "${2}""#);
-
-    let re = Regex::new(r#"(["]factory["]\s*[:]\s*)([^,\n]+)([,]?\s+)"#).unwrap();
-    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
-
-    let re = Regex::new(r#"(["]type["]\s*[:]\s*)([^,\n}]+)([},]?\s+)"#).unwrap();
-    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
-
-    let re = Regex::new(r#"(["]handler["]\s*[:]\s*)([^,\n]+)([,]?\s+)"#).unwrap();
-    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
-
-    let re = Regex::new(r#"(["]address["]\s*[:]\s*)([^,\n"]+)([,]?\s+)"#).unwrap();
-    let result = re.replace(&result, r#"${1} "${2}" ${3}"#);
-
-    let config: Config = match serde_json::from_str(&result) {
-        Ok(c) => c,
-        Err(e) => {
-            return Err(Error::new(Span::call_site(), e.to_string())
-                .to_compile_error()
-                .into());
-        }
-    };
-
+pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
     let address_value = {
-        let av = &config.address;
+        let av = match &config.address {
+            Address::Ident(id) => id.to_token_stream(),
+            Address::Lit(lit) => lit.to_token_stream(),
+        };
         let q = quote! {&#av};
         q.to_token_stream()
     };
 
     if config.handlers.is_empty() {
-        return Err(Error::new(Span::call_site(), "no handlers registered")
-            .to_compile_error()
-            .into());
+        return Err(Error::new(Span::call_site(), "no handlers registered"));
     }
 
     let handler_len = config.handlers.len();
-    let handlers: Vec<ExprHandler> = config.handlers.into_iter().map(|h| h.into()).collect();
+    let handlers = config.handlers;
 
     let HandlerTokens {
         routes,
@@ -81,8 +56,8 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
     };
 
     let (module_def, module_let, module_self) = config.container.map_or(Default::default(), |mp| {
-        let patj: ExprPath = parse_str(&mp.ttype).unwrap();
-        let make_container_func: ExprPath = parse_str(&mp.factory).unwrap();
+        let patj = mp.ttype;
+        let make_container_func = mp.factory;
 
         (
             quote! {module: std::sync::Arc<#patj>,},
@@ -98,25 +73,41 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             let mut i = 0u16;
 
             middleware.request.iter().for_each(|e| {
-                let e: ExprCall = parse_str(e).unwrap();
-                let name = &e.func;
                 let m_arg_ident = format_ident!("m_arg_{}", i);
                 let mut sorter = 0_u16;
 
-                let m_args: Vec<proc_macro2::TokenStream> = e.args.iter().map(|arg| {
-                    if let SynExpr::Call(expr_call) = arg {
-                        if expr_call.func.to_token_stream().to_string() == "request" {
-                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
-                            sorter += index;
-                            let i_ident = format_ident!("m_arg_{}", index);
-                            return quote!{#i_ident.clone()};
-                        }
+                let (name, m_args) = match e {
+                    Func::Call(expr_call) => {
+                        let m_args: Vec<proc_macro2::TokenStream> = expr_call.args.iter().map(|arg| {
+                            if let SynExpr::Call(expr_call) = arg {
+                                if expr_call.func.to_token_stream().to_string() == "request" {
+                                    let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                                    sorter += index;
+                                    let i_ident = format_ident!("m_arg_{}", index);
+                                    return quote!{#i_ident.clone()};
+                                }
+                            }
+                            quote! {#arg}
+                        }).collect();
+
+                        let q = if m_args.len() > 1 {
+                            quote! {(#(#m_args ,)*)}
+                        } else if m_args.len() == 1 {
+                            quote! {#(#m_args ,)*}
+                        } else {
+                            quote! {()}
+                        };
+
+                        (expr_call.func.to_token_stream(), q)
+                    },
+                    Func::Path(expr_path) => {
+                        (expr_path.to_token_stream(), quote! {()})
                     }
-                    quote! {#arg}
-                }).collect();
+                };
+
 
                 middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call(&mut parts, inner_module.clone(), &mut body, #(#m_args ,)*).await {
+                    let #m_arg_ident = match #name::call(&mut parts, inner_module.clone(), &mut body, #m_args).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -125,27 +116,13 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
             });
 
             middleware.response.iter_mut().for_each(|e| {
-                let mut e: ExprCall = parse_str(e).unwrap();
-                let name = &e.func;
                 let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                 let mut sorter = 0_u16;
 
-                let m_args: Vec<proc_macro2::TokenStream> = e.args.iter_mut().map(|arg| {
-                    if let SynExpr::Call(expr_call) = arg {
-                        if expr_call.func.to_token_stream().to_string() == "request" {
-                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
-                            let i_ident = format_ident!("m_arg_{}", index);
-                            return quote!{#i_ident.clone()};
-                        }
-                        if expr_call.func.to_token_stream().to_string() == "response" {
-                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
-                            sorter += index;
-                            return quote!{#r_m_arg_ident.clone()};
-                        }
-                    }
-                    if  let SynExpr::Tuple(tuple) = arg.clone() {
-                        let tuple_expr: Vec<proc_macro2::TokenStream> = tuple.elems.iter().map(|tuple_arg| {
-                            if let SynExpr::Call(expr_call) = tuple_arg {
+                let (name, m_args) = match e {
+                    Func::Call(expr_call) => {
+                        let m_args: Vec<proc_macro2::TokenStream> = expr_call.args.iter_mut().map(|arg| {
+                            if let SynExpr::Call(expr_call) = arg {
                                 if expr_call.func.to_token_stream().to_string() == "request" {
                                     let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
                                     let i_ident = format_ident!("m_arg_{}", index);
@@ -157,15 +134,45 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
                                     return quote!{#r_m_arg_ident.clone()};
                                 }
                             }
-                            quote! {#tuple_arg}
+                            if  let SynExpr::Tuple(tuple) = arg.clone() {
+                                let tuple_expr: Vec<proc_macro2::TokenStream> = tuple.elems.iter().map(|tuple_arg| {
+                                    if let SynExpr::Call(expr_call) = tuple_arg {
+                                        if expr_call.func.to_token_stream().to_string() == "request" {
+                                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                                            let i_ident = format_ident!("m_arg_{}", index);
+                                            return quote!{#i_ident.clone()};
+                                        }
+                                        if expr_call.func.to_token_stream().to_string() == "response" {
+                                            let index: u16 = expr_call.args.first().unwrap().to_token_stream().to_string().parse().unwrap();
+                                            sorter += index;
+                                            return quote!{#r_m_arg_ident.clone()};
+                                        }
+                                    }
+                                    quote! {#tuple_arg}
+                                }).collect();
+                                return quote! {( #(#tuple_expr ,)* )};
+                            }
+                            quote! {#arg}
                         }).collect();
-                        return quote! {( #(#tuple_expr ,)* )};
+
+                        let q = if m_args.len() > 1 {
+                            quote! {(#(#m_args ,)*)}
+                        } else if m_args.len() == 1 {
+                            quote! {#(#m_args ,)*}
+                        } else {
+                            quote! {()}
+                        };
+
+                        (expr_call.func.to_token_stream(), q)
+
+                    },
+                    Func::Path(expr_path) => {
+                        (expr_path.to_token_stream(), quote! {()})
                     }
-                    quote! {#arg}
-                }).collect();
+                };
 
                 middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #r_m_arg_ident = match #name::call(&mut rb, inner_module.clone(), #(#m_args ,)* ).await {
+                    let #r_m_arg_ident = match #name::call(&mut rb, inner_module.clone(), #m_args).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -184,32 +191,32 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         let mut jobs_res = vec![];
 
         jobs.request.iter().for_each(|e| {
-            let expr_call: Result<ExprCall, _> = parse_str(e);
-
-            let (name, m_args) = match expr_call {
-                Ok(e) => {
-                    let name = e.func.to_token_stream();
-                    let mut m_args: Vec<proc_macro2::TokenStream> = e
+            let (name, m_args) = match e {
+                Func::Call(ec) => {
+                    let name = ec.func.to_token_stream();
+                    let mut m_args: Vec<proc_macro2::TokenStream> = ec
                         .args
                         .iter()
                         .map(|arg| {
                             quote! {#arg}
                         })
                         .collect();
-                    if m_args.is_empty() {
-                        m_args = vec![quote! {()}];
-                    }
 
-                    (name, m_args)
+                    let q = if m_args.len() > 1 {
+                        quote! {(#(#m_args ,)*)}
+                    } else if m_args.len() == 1 {
+                        quote! {#(#m_args ,)*}
+                    } else {
+                        quote! {()}
+                    };
+
+                    (name, q)
                 }
-                Err(_) => {
-                    let name: Path = parse_str(e).unwrap();
-                    (name.to_token_stream(), vec![quote! {()}])
-                }
+                Func::Path(path) => (path.to_token_stream(), quote! {()}),
             };
 
             jobs_req.push(quote! {
-                match #name::call(&parts, inner_module.clone(), &body, #(#m_args ,)*).await {
+                match #name::call(&parts, inner_module.clone(), &body, #m_args).await {
                     darpi::job::ReturnType::Fn(function) => {
                         inner_send_sync.send(function).unwrap_or(());
                     }
@@ -221,31 +228,31 @@ pub(crate) fn make_app(input: TokenStream) -> Result<TokenStream, TokenStream> {
         });
 
         jobs.response.iter_mut().for_each(|e| {
-            let expr_call: Result<ExprCall, _> = parse_str(e);
-
-            let (name, m_args) = match expr_call {
-                Ok(e) => {
-                    let name = e.func.to_token_stream();
-                    let mut m_args: Vec<proc_macro2::TokenStream> = e
+            let (name, m_args) = match e {
+                Func::Call(ec) => {
+                    let name = ec.func.to_token_stream();
+                    let mut m_args: Vec<proc_macro2::TokenStream> = ec
                         .args
                         .iter()
                         .map(|arg| {
                             quote! {#arg}
                         })
                         .collect();
-                    if m_args.is_empty() {
-                        m_args = vec![quote! {()}];
-                    }
-                    (name, m_args)
+
+                    let q = if m_args.len() > 1 {
+                        quote! {(#(#m_args ,)*)}
+                    } else if m_args.len() == 1 {
+                        quote! {#(#m_args ,)*}
+                    } else {
+                        quote! {()}
+                    };
+                    (name, q)
                 }
-                Err(_) => {
-                    let name: Path = parse_str(e).unwrap();
-                    (name.to_token_stream(), vec![quote! {()}])
-                }
+                Func::Path(p) => (p.to_token_stream(), quote! {()}),
             };
 
             jobs_res.push(quote! {
-                match #name::call(&rb, inner_module.clone(), #(#m_args ,)* ).await {
+                match #name::call(&rb, inner_module.clone(), #m_args).await {
                     darpi::job::ReturnType::Fn(function) => {
                         inner_send_sync.send(function).unwrap_or(());
                     }
@@ -416,7 +423,7 @@ struct HandlerTokens {
     body_assert_def: Vec<proc_macro2::TokenStream>,
 }
 
-fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
+fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
     let mut is = vec![];
     let mut routes = vec![];
     let mut routes_match = vec![];
@@ -539,60 +546,321 @@ fn make_handlers(handlers: Vec<ExprHandler>) -> HandlerTokens {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct Container {
-    factory: String,
-    #[serde(alias = "type")]
-    ttype: String,
+#[derive(Debug)]
+pub(crate) enum Address {
+    Lit(LitStr),
+    Ident(Ident),
 }
 
-#[derive(Debug, Deserialize)]
-struct Jobs {
-    pub request: Vec<String>,
-    pub response: Vec<String>,
-}
+// impl ToTokens for Address {
+//     fn to_tokens(&self, tokens: &mut TokenStream) {
+//         match self {
+//             Self::Lit(lit) => lit.to_token_stream().to_tokens(tokens),
+//             Self::Ident(id) => id.to_tokens(tokens),
+//         }
+//     }
+// }
 
-#[derive(Debug, Deserialize)]
-struct Middleware {
-    pub request: Vec<String>,
-    pub response: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct Handler {
-    pub route: String,
-    pub method: String,
-    pub handler: String,
-}
-
-impl Into<ExprHandler> for Handler {
-    fn into(self) -> ExprHandler {
-        let route = format!(r#""{}""#, &self.route);
-
-        let route: ExprLit = parse_str(&route).unwrap();
-        let method: ExprPath = parse_str(&self.method).unwrap();
-        let handler: ExprPath = parse_str(&self.handler).unwrap();
-
-        ExprHandler {
-            route,
-            method,
-            handler,
+impl Parse for Address {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        if input.peek(LitStr) {
+            let lit_str: LitStr = input.parse()?;
+            return Ok(Address::Lit(lit_str));
         }
+        let ident: Ident = input.parse()?;
+        Ok(Address::Ident(ident))
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct Config {
-    pub address: String,
-    pub container: Option<Container>,
-    pub jobs: Option<Jobs>,
-    pub middleware: Option<Middleware>,
-    pub handlers: Vec<Handler>,
+#[derive(Debug)]
+pub(crate) struct Container {
+    factory: syn::Path,
+    ttype: syn::Path,
+}
+
+impl Parse for Container {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let mut factory: Option<syn::Path> = None;
+        let mut ttype: Option<syn::Path> = None;
+
+        let content;
+        let _ = braced!(content in input);
+
+        while !content.is_empty() {
+            if content.peek(token::Comma) {
+                let _: token::Comma = content.parse()?;
+            }
+
+            let key: Ident = if content.peek(token::Type) {
+                let _: token::Type = content.parse()?;
+                format_ident!("type")
+            } else {
+                content.parse()?
+            };
+            let _: token::Colon = content.parse()?;
+
+            if key == "factory" {
+                let f: syn::Path = content.parse()?;
+                factory = Some(f);
+                continue;
+            }
+            if key == "type" {
+                let t: syn::Path = content.parse()?;
+                ttype = Some(t);
+                continue;
+            }
+
+            return Err(Error::new_spanned(
+                key.clone(),
+                format!(
+                    "unknown key: `{}`. Only `factory` and `type` are allowed",
+                    key
+                ),
+            ));
+        }
+
+        let factory = match factory {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `factory`")),
+        };
+
+        let ttype = match ttype {
+            Some(r) => r,
+            None => return Err(Error::new(Span::call_site(), "missing `type`")),
+        };
+
+        Ok(Container { factory, ttype })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum Func {
+    Call(ExprCall),
+    Path(ExprPath),
+}
+
+impl Parse for Func {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        if input.fork().parse::<ExprCall>().is_ok() {
+            let expr_call: ExprCall = input.parse()?;
+            return Ok(Func::Call(expr_call));
+        }
+
+        let expr_path: ExprPath = input.parse()?;
+        return Ok(Func::Path(expr_path));
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ReqResArray {
+    pub request: Punctuated<Func, token::Comma>,
+    pub response: Punctuated<Func, token::Comma>,
+}
+
+impl Parse for ReqResArray {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let content;
+        let _ = braced!(content in input);
+
+        let mut request: Option<Punctuated<Func, token::Comma>> = None;
+        let mut response: Option<Punctuated<Func, token::Comma>> = None;
+
+        while !content.is_empty() {
+            if content.peek(token::Comma) {
+                let _: token::Comma = content.parse()?;
+            }
+
+            let key: Ident = content.parse()?;
+            let _: token::Colon = content.parse()?;
+
+            let brc;
+            let _ = bracketed!(brc in content);
+
+            if key == "request" {
+                let r: Punctuated<Func, token::Comma> = Punctuated::parse(&brc)?;
+                request = Some(r);
+                continue;
+            }
+            if key == "response" {
+                let r: Punctuated<Func, token::Comma> = Punctuated::parse(&brc)?;
+                response = Some(r);
+                continue;
+            }
+
+            return Err(Error::new_spanned(
+                key.clone(),
+                format!(
+                    "unknown key: `{}`. Only `request` and `response` are allowed",
+                    key
+                ),
+            ));
+        }
+
+        let request = match request {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `request`")),
+        };
+
+        let response = match response {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `response`")),
+        };
+
+        return Ok(ReqResArray { request, response });
+    }
+}
+
+#[derive(Debug)]
+pub struct Config {
+    pub(crate) address: Address,
+    pub(crate) container: Option<Container>,
+    pub(crate) jobs: Option<ReqResArray>,
+    pub(crate) middleware: Option<ReqResArray>,
+    pub(crate) handlers: Punctuated<Handler, token::Comma>,
+}
+
+impl Parse for Config {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let content;
+        let _ = braced!(content in input);
+
+        let mut address: Option<Address> = None;
+        let mut container: Option<Container> = None;
+        let mut jobs: Option<ReqResArray> = None;
+        let mut middleware: Option<ReqResArray> = None;
+        let mut handlers: Option<Punctuated<Handler, token::Comma>> = None;
+
+        while !content.is_empty() {
+            if content.peek(token::Comma) {
+                let _: token::Comma = content.parse()?;
+            }
+            let key: Ident = content.parse()?;
+            let _: token::Colon = content.parse()?;
+
+            if key == "address" {
+                let a: Address = content.parse()?;
+                address = Some(a);
+                continue;
+            }
+            if key == "container" {
+                let c: Container = content.parse()?;
+                container = Some(c);
+                continue;
+            }
+            if key == "jobs" {
+                let j: ReqResArray = content.parse()?;
+                jobs = Some(j);
+                continue;
+            }
+            if key == "middleware" {
+                let m: ReqResArray = content.parse()?;
+                middleware = Some(m);
+                continue;
+            }
+
+            if key == "handlers" {
+                let br;
+                let _ = bracketed!(br in content);
+                let h: Punctuated<Handler, token::Comma> = Punctuated::parse(&br)?;
+                handlers = Some(h);
+                continue;
+            }
+
+            return Err(Error::new_spanned(
+                key.clone(),
+                format!(
+                    "unknown key: `{}`. Only `route`, `handler` and `method` are allowed",
+                    key
+                ),
+            ));
+        }
+
+        let address = match address {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `address`")),
+        };
+
+        let handlers = match handlers {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `handlers`")),
+        };
+
+        return Ok(Config {
+            address,
+            container,
+            jobs,
+            middleware,
+            handlers,
+        });
+    }
 }
 
 #[derive(Debug, Clone)]
-struct ExprHandler {
+pub(crate) struct Handler {
     route: ExprLit,
     method: ExprPath,
     handler: ExprPath,
+}
+
+impl Parse for Handler {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let content;
+        let _ = braced!(content in input);
+        let mut route: Option<ExprLit> = None;
+        let mut method: Option<ExprPath> = None;
+        let mut handler: Option<ExprPath> = None;
+
+        while !content.is_empty() {
+            if content.peek(token::Comma) {
+                let _: token::Comma = content.parse()?;
+            }
+            let key: Ident = content.parse()?;
+            let _: token::Colon = content.parse()?;
+
+            if key == "route" {
+                let r: ExprLit = content.parse()?;
+                route = Some(r);
+                continue;
+            }
+            if key == "method" {
+                let m: ExprPath = content.parse()?;
+                method = Some(m);
+                continue;
+            }
+            if key == "handler" {
+                let h: ExprPath = content.parse()?;
+                handler = Some(h);
+                continue;
+            }
+
+            return Err(Error::new_spanned(
+                key.clone(),
+                format!(
+                    "unknown key: `{}`. Only `route`, `handler` and `method` are allowed",
+                    key
+                ),
+            ));
+        }
+
+        let route = match route {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `route`")),
+        };
+
+        let method = match method {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `method`")),
+        };
+
+        let handler = match handler {
+            Some(r) => r,
+            None => return Err(SynError::new(Span::call_site(), "missing `handler`")),
+        };
+
+        return Ok(Handler {
+            route,
+            method,
+            handler,
+        });
+    }
 }
