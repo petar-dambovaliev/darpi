@@ -1,73 +1,17 @@
+use crate::app::{Container, Func, ReqResArray};
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
+use syn::parse::Parse;
 use syn::parse_quote::ParseQuote;
 use syn::punctuated::Punctuated;
 use syn::{
-    bracketed, parse::ParseStream, parse_macro_input, token::Bracket, token::Comma, token::Eq,
+    braced, bracketed, parse::ParseStream, parse_macro_input, token, token::Comma, token::Eq,
     Error, Expr, ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments,
-    PathSegment, Type, TypePath,
+    PathSegment, Result as SynResult, Type, TypePath,
 };
-
-#[derive(Debug)]
-struct Arguments {
-    module: Option<Ident>,
-    req_middleware: Option<Punctuated<ExprCall, Comma>>,
-    res_middleware: Option<Punctuated<ExprCall, Comma>>,
-}
-
-impl syn::parse::Parse for Arguments {
-    fn parse(input: ParseStream) -> Result<Self, Error> {
-        let mut module = None;
-        let mut req_middleware = None;
-        let mut res_middleware = None;
-
-        while !input.is_empty() {
-            let id: Ident = input.parse()?;
-            let _: Eq = input.parse()?;
-            let id_str = id.to_string();
-
-            match id_str.as_str() {
-                "container" => {
-                    if module.is_some() {
-                        return Err(Error::new_spanned(
-                            id.clone(),
-                            format!("cannot overwrite container: `{}`", id),
-                        ));
-                    }
-                    let f: Option<Ident> = Some(input.parse()?);
-                    module = f;
-                }
-                "req_middleware" => {
-                    let content;
-                    let _ = bracketed!(content in input);
-                    let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
-                    req_middleware = m;
-                }
-                "res_middleware" => {
-                    let content;
-                    let _ = bracketed!(content in input);
-                    let m: Option<Punctuated<ExprCall, Comma>> = Some(Punctuated::parse(&content)?);
-                    res_middleware = m;
-                }
-                _ => {
-                    return Err(Error::new_spanned(
-                        id.clone(),
-                        format!("unknown key: `{}`", id),
-                    ))
-                }
-            }
-        }
-
-        Ok(Arguments {
-            module,
-            req_middleware,
-            res_middleware,
-        })
-    }
-}
 
 pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
 pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
@@ -108,57 +52,139 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut middleware_req = vec![];
     let mut middleware_res = vec![];
     let mut i = 0u16;
-    let mut len_middleware = None;
     let mut module_type = quote! {T};
+    let (mut req_len, mut res_len) = (0, 0);
+    let mut jobs_req = vec![];
+    let mut jobs_res = vec![];
 
     if !args.is_empty() {
-        let arguments = parse_macro_input!(args as Arguments);
-        req_len = arguments.req_middleware.clone().map_or(0, |f| f.len());
+        let arguments = parse_macro_input!(args as Config);
+        arguments.middleware.map(|r| {
+            req_len = r.request.map(|rm| {
+                for e in &rm {
+                    let name = e.get_name();
+                    let m_arg_ident = format_ident!("m_arg_{}", i);
+                    let mut sorter = 0_u16;
+                    let m_args: Vec<proc_macro2::TokenStream> =
+                        get_req_middleware_arg(e, &mut sorter, rm.len());
 
-        if let Some(m) = arguments.req_middleware {
-            len_middleware = Some(m.len());
-            for e in &m {
-                let name = &e.func;
-                let m_arg_ident = format_ident!("m_arg_{}", i);
-                let mut sorter = 0_u16;
-                let m_args: Vec<proc_macro2::TokenStream> =
-                    get_req_middleware_arg(e, &mut sorter, m.len());
-
-                middleware_req.push((sorter, quote! {
+                    middleware_req.push((sorter, quote! {
                     let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, (#(#m_args ,)*)).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
                 }));
-                i += 1;
-            }
-        }
+                    i += 1;
+                }
 
-        res_len = arguments.res_middleware.clone().map_or(0, |f| f.len());
-        if let Some(m) = arguments.res_middleware {
-            len_middleware = Some(m.len());
-            for e in &m {
-                let name = &e.func;
-                let m_arg_ident = format_ident!("m_arg_{}", i);
-                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
-                let mut sorter = 0_u16;
-                let m_args: Vec<proc_macro2::TokenStream> =
-                    get_res_middleware_arg(e, &mut sorter, m.len(), res_len);
+                rm.len()
+            }).unwrap_or(0);
 
-                middleware_res.push((std::u16::MAX - i - sorter, quote! {
+            res_len = r.response.map(|rm| {
+                for e in &rm {
+                    let name = e.get_name();
+                    let m_arg_ident = format_ident!("m_arg_{}", i);
+                    let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
+                    let mut sorter = 0_u16;
+                    let m_args: Vec<proc_macro2::TokenStream> =
+                        get_res_middleware_arg(e, &mut sorter, rm.len(), res_len);
+
+                    middleware_res.push((std::u16::MAX - i - sorter, quote! {
                     let #r_m_arg_ident = match #name::call(&mut rb, args.container.clone(), #(#m_args ,)*).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
                 }));
-                i += 1;
-            }
-        }
-        if let Some(m) = arguments.module {
-            module = quote! {#module_ident: std::sync::Arc<#m>};
+                    i += 1;
+                }
+                rm.len()
+            }).unwrap_or(0);
+        });
+
+        if let Some(m) = arguments.container {
+            let ttype = m.clone();
+            module = quote! {#module_ident: std::sync::Arc<#ttype>};
             dummy_t = Default::default();
             module_type = m.to_token_stream();
         }
+        arguments.jobs.map(|jobs| {
+            jobs.request.map(|jr| {
+                jr.iter().for_each(|e| {
+                    let (name, m_args) = match e {
+                        Func::Call(ec) => {
+                            let name = ec.func.to_token_stream();
+                            let m_args: Vec<proc_macro2::TokenStream> = ec
+                                .args
+                                .iter()
+                                .map(|arg| {
+                                    quote! {#arg}
+                                })
+                                .collect();
+
+                            let q = if m_args.len() > 1 {
+                                quote! {(#(#m_args ,)*)}
+                            } else if m_args.len() == 1 {
+                                quote! {#(#m_args ,)*}
+                            } else {
+                                quote! {()}
+                            };
+
+                            (name, q)
+                        }
+                        Func::Path(path) => (path.to_token_stream(), quote! {()}),
+                    };
+
+                    jobs_req.push(quote! {
+                        match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await {
+                            darpi::job::ReturnType::Fn(function) => {
+                                args.sync_job_sender.send(function).unwrap_or(());
+                            }
+                            darpi::job::ReturnType::Future(fut) => {
+                                args.async_job_sender.send(fut).unwrap_or(());
+                            }
+                        };
+                    });
+                });
+            });
+
+            jobs.response.map(|ref mut jr| {
+                jr.iter_mut().for_each(|e| {
+                    let (name, m_args) = match e {
+                        Func::Call(ec) => {
+                            let name = ec.func.to_token_stream();
+                            let m_args: Vec<proc_macro2::TokenStream> = ec
+                                .args
+                                .iter()
+                                .map(|arg| {
+                                    quote! {#arg}
+                                })
+                                .collect();
+
+                            let q = if m_args.len() > 1 {
+                                quote! {(#(#m_args ,)*)}
+                            } else if m_args.len() == 1 {
+                                quote! {#(#m_args ,)*}
+                            } else {
+                                quote! {()}
+                            };
+                            (name, q)
+                        }
+                        Func::Path(p) => (p.to_token_stream(), quote! {()}),
+                    };
+
+                    jobs_res.push(quote! {
+                        match #name::call(&rb, args.container.clone(), #m_args).await {
+                            darpi::job::ReturnType::Fn(function) => {
+                                args.sync_job_sender.send(function).unwrap_or(());
+                            }
+                            darpi::job::ReturnType::Future(fut) => {
+                                args.async_job_sender.send(fut).unwrap_or(());
+                            }
+                        };
+                    });
+                });
+            });
+        });
     }
 
     let mut i = 0_u32;
@@ -250,12 +276,15 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                use darpi::ResponseMiddleware;
 
                 #(#middleware_req )*
+                #(#jobs_req )*
 
                #(#make_args )*
 
                let mut rb = Self::#func_name(#(#give_args ,)*).await.respond();
 
                #(#middleware_res )*
+               #(#jobs_res )*
+
                 Ok(rb)
             }
         }
@@ -265,12 +294,12 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 }
 
 fn get_req_middleware_arg(
-    e: &ExprCall,
+    e: &Func,
     sorter: &mut u16,
     m_len: usize,
 ) -> Vec<proc_macro2::TokenStream> {
     let m_args: Vec<proc_macro2::TokenStream> = e
-        .args
+        .get_args()
         .iter()
         .map(|arg| {
             if let Expr::Call(expr_call) = arg {
@@ -303,13 +332,13 @@ fn get_req_middleware_arg(
 }
 
 fn get_res_middleware_arg(
-    e: &ExprCall,
+    e: &Func,
     sorter: &mut u16,
     m_len: usize,
     other_len: usize,
 ) -> Vec<proc_macro2::TokenStream> {
     let m_args: Vec<proc_macro2::TokenStream> = e
-        .args
+        .get_args()
         .iter()
         .map(|arg| {
             if let Expr::Call(expr_call) = arg {
@@ -589,4 +618,62 @@ fn make_handler_args(
     )
     .to_compile_error()
     .into())
+}
+
+#[derive(Debug)]
+pub struct Config {
+    pub(crate) container: Option<syn::Path>,
+    pub(crate) jobs: Option<ReqResArray>,
+    pub(crate) middleware: Option<ReqResArray>,
+}
+
+impl Parse for Config {
+    fn parse(input: ParseStream) -> SynResult<Self> {
+        let content;
+        let _ = braced!(content in input);
+
+        let mut container: Option<syn::Path> = None;
+        let mut jobs: Option<ReqResArray> = None;
+        let mut middleware: Option<ReqResArray> = None;
+
+        while !content.is_empty() {
+            if content.peek(token::Comma) {
+                let _: token::Comma = content.parse()?;
+            }
+
+            let key = content.fork().parse::<Ident>()?;
+
+            if key == "container" {
+                let _: Ident = content.parse()?;
+                let _: token::Colon = content.parse()?;
+                let c: syn::Path = content.parse()?;
+                container = Some(c);
+                continue;
+            }
+            if key == "jobs" {
+                let j: ReqResArray = content.parse()?;
+                jobs = Some(j);
+                continue;
+            }
+            if key == "middleware" {
+                let m: ReqResArray = content.parse()?;
+                middleware = Some(m);
+                continue;
+            }
+
+            return Err(Error::new_spanned(
+                key.clone(),
+                format!(
+                    "unknown key: `{}`. Only `route`, `handler` and `method` are allowed",
+                    key
+                ),
+            ));
+        }
+
+        return Ok(Config {
+            container,
+            jobs,
+            middleware,
+        });
+    }
 }

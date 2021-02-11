@@ -26,3 +26,4 @@ darpi-route = { path = "../darpi-route" }
 serde_yaml = "0.8"
 serde-xml-rs = "0.4.1"
 chrono = "0.4"
+tokio = {version = "0.2.11", features = ["full"]}

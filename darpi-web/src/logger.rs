@@ -4,9 +4,9 @@ use http::request::Parts as RequestParts;
 pub use hyper::{body::HttpBody, Body, Request, Response, StatusCode};
 use std::time::Instant;
 
-pub struct DefaulFormat;
-impl ReqFormatter for DefaulFormat {}
-impl RespFormatter for DefaulFormat {}
+pub struct DefaultFormat;
+impl ReqFormatter for DefaultFormat {}
+impl RespFormatter for DefaultFormat {}
 
 pub trait ReqFormatter: Sync + Send + 'static {
     fn format_req(&self, b: &Body, rp: &RequestParts) -> String {

@@ -1,6 +1,6 @@
 use darpi::{
-    app, handler, job, req_formatter, resp_formatter, Error, Method, Path, Query, RequestJob,
-    ResponseJob,
+    app, handler, job, logger::DefaultFormat, req_formatter, resp_formatter, Error, Method, Path,
+    Query, RequestJob, ResponseJob,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
@@ -52,14 +52,21 @@ async fn first_sync_job() -> job::ReturnType {
 }
 
 //todo implement the ... operator for middleware slicing
-#[handler]
+#[handler({
+    container: Container,
+    jobs: {
+        request: [first_async_job],
+        response: [first_sync_job]
+    }
+})]
 async fn hello_world() -> String {
     format!("{}", 123)
 }
 
-#[resp_formatter("%a")]
-#[req_formatter("%a")]
-struct LogFormatter;
+#[handler]
+async fn hello_world1() -> String {
+    format!("{}", 123)
+}
 
 //RUST_LOG=darpi=info cargo test --test inject -- --nocapture
 //#[tokio::test]
@@ -77,13 +84,17 @@ async fn main() -> Result<(), darpi::Error> {
             response: [first_sync_job]
         },
         middleware: {
-            request: [log_request(LogFormatter)],
-            response: [log_response(LogFormatter, request(0))]
+            request: [log_request(DefaultFormat)],
+            response: [log_response(DefaultFormat, request(0))]
         },
         handlers: [{
             route: "/hello_world",
             method: Method::GET,
             handler: hello_world
+        }, {
+            route: "/hello_world1",
+            method: Method::GET,
+            handler: hello_world1
         }]
     })
     .run()
