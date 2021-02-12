@@ -1,6 +1,6 @@
 use darpi::{
-    app, handler, job, logger::DefaultFormat, req_formatter, resp_formatter, Error, Method, Path,
-    Query, RequestJob, ResponseJob,
+    app, handler, job, job_factory, logger::DefaultFormat, req_formatter, resp_formatter, Error,
+    Method, Path, Query, RequestJobFactory, ResponseJobFactory,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
@@ -26,53 +26,44 @@ pub struct Name {
     name: String,
 }
 
-#[job(Request)]
-async fn first_async_job() -> job::ReturnType {
-    job::ReturnType::Future(async { println!("first job in the background.") }.boxed())
+#[job_factory(Request)]
+async fn first_async_job() -> job::Job {
+    job::Job::Future(async { println!("first job in the background.") }.boxed())
 }
 
-#[job(Response)]
-async fn first_sync_job() -> job::ReturnType {
-    println!("first_sync_job start");
-    job::ReturnType::Fn(|| {
+#[job_factory(Response)]
+async fn first_sync_job() -> job::Job {
+    job::Job::CpuBound(|| println!("first_sync_job in the background"))
+}
+
+#[job_factory(Response)]
+async fn first_sync_job1() -> job::Job {
+    job::Job::CpuBound(|| {
         let mut r = 0;
         for i in 0..10000000 {
             r += 1;
         }
-        let mut r = 0;
-        for i in 0..10000000 {
-            r += 1;
-        }
-        let mut r = 0;
-        for i in 0..10000000 {
-            r += 1;
-        }
-        println!("first sync job in the background. {}", r)
+        println!("first_sync_job1 finished in the background. {}", r)
     })
 }
 
-//todo implement the ... operator for middleware slicing
 #[handler({
     container: Container,
     jobs: {
-        request: [first_async_job],
-        response: [first_sync_job]
+        request: [],
+        response: [first_sync_job1]
     }
 })]
 async fn hello_world() -> String {
     format!("{}", 123)
 }
 
-#[handler]
-async fn hello_world1() -> String {
-    format!("{}", 123)
-}
-
-//RUST_LOG=darpi=info cargo test --test inject -- --nocapture
+//RUST_LOG=darpi=info cargo test --test job -- --nocapture
 //#[tokio::test]
 #[tokio::test]
 async fn main() -> Result<(), darpi::Error> {
     env_logger::builder().is_test(true).try_init().unwrap();
+
     app!({
         address: "127.0.0.1:3000",
         container : {
@@ -80,7 +71,7 @@ async fn main() -> Result<(), darpi::Error> {
             type: Container
         },
         jobs: {
-            request: [first_async_job],
+            request: [],
             response: [first_sync_job]
         },
         middleware: {
@@ -91,10 +82,6 @@ async fn main() -> Result<(), darpi::Error> {
             route: "/hello_world",
             method: Method::GET,
             handler: hello_world
-        }, {
-            route: "/hello_world1",
-            method: Method::GET,
-            handler: hello_world1
         }]
     })
     .run()

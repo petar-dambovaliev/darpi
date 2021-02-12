@@ -6,24 +6,25 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 #[async_trait]
-pub trait RequestJob<C>
+pub trait RequestJobFactory<C>
 where
     C: 'static + Sync + Send,
 {
     type HandlerArgs;
-    async fn call(p: &RequestParts, module: Arc<C>, b: &Body, ha: Self::HandlerArgs) -> ReturnType;
+    async fn call(p: &RequestParts, module: Arc<C>, b: &Body, ha: Self::HandlerArgs) -> Job;
 }
 
 #[async_trait]
-pub trait ResponseJob<C>
+pub trait ResponseJobFactory<C>
 where
     C: 'static + Sync + Send,
 {
     type HandlerArgs;
-    async fn call(r: &Response<Body>, module: Arc<C>, ha: Self::HandlerArgs) -> ReturnType;
+    async fn call(r: &Response<Body>, module: Arc<C>, ha: Self::HandlerArgs) -> Job;
 }
 
-pub enum ReturnType {
+pub enum Job {
     Future(Pin<Box<dyn Future<Output = ()> + Send>>),
-    Fn(fn()),
+    CpuBound(fn()),
+    IOBlocking(fn()),
 }

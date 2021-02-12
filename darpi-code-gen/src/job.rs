@@ -102,7 +102,7 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                 }
 
                 #[darpi::async_trait]
-                impl<C #gen_params> darpi::RequestJob<C> for #name#with_brackets
+                impl<C #gen_params> darpi::RequestJobFactory<C> for #name#with_brackets
                 where
                     C: 'static + Sync + Send #where_module,
                     #bounds
@@ -114,7 +114,7 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                         module: std::sync::Arc<C>,
                         b: &darpi::Body,
                         ha: Self::HandlerArgs,
-                    ) -> darpi::job::ReturnType {
+                    ) -> darpi::job::Job {
                         #(#make )*
                         Self::#name#func_gen_call(#(#give ,)*).await
                     }
@@ -131,7 +131,7 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                 }
 
                 #[darpi::async_trait]
-                impl<C #gen_params> darpi::ResponseJob<C> for #name#with_brackets
+                impl<C #gen_params> darpi::ResponseJobFactory<C> for #name#with_brackets
                 where
                     C: 'static + Sync + Send #where_module,
                     #bounds
@@ -142,7 +142,7 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                         r: &darpi::Response<darpi::Body>,
                         module: std::sync::Arc<C>,
                         ha: Self::HandlerArgs,
-                    ) -> darpi::job::ReturnType {
+                    ) -> darpi::job::Job {
                         #(#make )*
                         Self::#name#func_gen_call(#(#give ,)*).await
                     }

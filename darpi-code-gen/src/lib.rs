@@ -31,7 +31,7 @@ pub fn middleware(args: TokenStream, input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn job(args: TokenStream, input: TokenStream) -> TokenStream {
+pub fn job_factory(args: TokenStream, input: TokenStream) -> TokenStream {
     job::make_job(args, input)
 }
 

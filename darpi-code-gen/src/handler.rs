@@ -1,16 +1,16 @@
-use crate::app::{Container, Func, ReqResArray};
+use crate::app::{Func, ReqResArray};
 use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 use syn::parse::Parse;
-use syn::parse_quote::ParseQuote;
-use syn::punctuated::Punctuated;
+//use syn::parse_quote::ParseQuote;
+//use syn::punctuated::Punctuated;
 use syn::{
-    braced, bracketed, parse::ParseStream, parse_macro_input, token, token::Comma, token::Eq,
-    Error, Expr, ExprCall, ExprLit, FnArg, GenericArgument, ItemFn, PatType, PathArguments,
-    PathSegment, Result as SynResult, Type, TypePath,
+    braced, parse::ParseStream, parse_macro_input, token, Error, Expr, ExprLit, FnArg,
+    GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Result as SynResult, Type,
+    TypePath,
 };
 
 pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
@@ -32,14 +32,14 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut make_args = vec![];
     let mut give_args = vec![];
     let mut n_args = 0u8;
-    let mut wants_body = false;
+    //let mut wants_body = false;
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
-    let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
+    //let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
     let mut map = HashMap::new();
     let mut max_middleware_index = None;
-    let mut req_len = 0;
-    let mut res_len = 0;
+    //let mut req_len = 0;
+    //let mut res_len = 0;
 
     if n_args > 1 {
         return Error::new_spanned(func, "One 1 path type is allowed")
@@ -47,7 +47,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             .into();
     }
 
-    let mut module = Default::default();
+    //let mut module = Default::default();
     let mut dummy_t = quote! {,T};
     let mut middleware_req = vec![];
     let mut middleware_res = vec![];
@@ -83,7 +83,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             res_len = r.response.map(|rm| {
                 for e in &rm {
                     let name = e.get_name();
-                    let m_arg_ident = format_ident!("m_arg_{}", i);
+                    //let m_arg_ident = format_ident!("m_arg_{}", i);
                     let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                     let mut sorter = 0_u16;
                     let m_args: Vec<proc_macro2::TokenStream> =
@@ -102,8 +102,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         });
 
         if let Some(m) = arguments.container {
-            let ttype = m.clone();
-            module = quote! {#module_ident: std::sync::Arc<#ttype>};
+            //let ttype = m.clone();
+            //module = quote! {#module_ident: std::sync::Arc<#ttype>};
             dummy_t = Default::default();
             module_type = m.to_token_stream();
         }
@@ -136,10 +136,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
                     jobs_req.push(quote! {
                         match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await {
-                            darpi::job::ReturnType::Fn(function) => {
-                                args.sync_job_sender.send(function).unwrap_or(());
+                            darpi::job::Job::CpuBound(function) => {
+                                args.sync_cpu_job_sender.send(function).unwrap_or(());
                             }
-                            darpi::job::ReturnType::Future(fut) => {
+                            darpi::job::Job::IOBlocking(function) => {
+                                args.sync_io_job_sender.send(function).unwrap_or(());
+                            }
+                            darpi::job::Job::Future(fut) => {
                                 args.async_job_sender.send(fut).unwrap_or(());
                             }
                         };
@@ -174,10 +177,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
                     jobs_res.push(quote! {
                         match #name::call(&rb, args.container.clone(), #m_args).await {
-                            darpi::job::ReturnType::Fn(function) => {
-                                args.sync_job_sender.send(function).unwrap_or(());
+                            darpi::job::Job::CpuBound(function) => {
+                                args.sync_cpu_job_sender.send(function).unwrap_or(());
                             }
-                            darpi::job::ReturnType::Future(fut) => {
+                            darpi::job::Job::IOBlocking(function) => {
+                                args.sync_io_job_sender.send(function).unwrap_or(());
+                            }
+                            darpi::job::Job::Future(fut) => {
                                 args.async_job_sender.send(fut).unwrap_or(());
                             }
                         };
@@ -197,12 +203,12 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             let (arg_name, method_resolve) = match h_args {
                 HandlerArgs::Query(i, ts) => (i, ts),
                 HandlerArgs::Body(i, ts) => {
-                    wants_body = true;
+                    //wants_body = true;
                     (i, ts)
                 }
                 HandlerArgs::Path(i, ts) => {
                     n_args += 1;
-                    has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
+                    //has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
                     (i, ts)
                 }
                 HandlerArgs::Option(i, ts) => (i, ts),
@@ -237,11 +243,11 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
     let func_copy = func.clone();
 
-    let module_ident = if !module.is_empty() && dummy_t.is_empty() {
-        quote! {#module_ident.clone()}
-    } else {
-        quote! {#module_ident.clone()}
-    };
+    // let module_ident = if !module.is_empty() && dummy_t.is_empty() {
+    //     quote! {#module_ident.clone()}
+    // } else {
+    //     quote! {#module_ident.clone()}
+    // };
 
     let dummy_where = if dummy_t.is_empty() {
         quote! {}
@@ -495,7 +501,7 @@ fn make_handler_args(
     i: u32,
     module_ident: &Ident,
     req_len: usize,
-    res_len: usize,
+    _res_len: usize,
 ) -> Result<HandlerArgs, TokenStream> {
     let ttype = &tp.ty;
 
