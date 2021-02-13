@@ -347,35 +347,32 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 ) = std::sync::mpsc::channel();
 
                 let sync_job_executor = std::thread::spawn(move || {
-                    let mut check_recv_sync = true;
-                    let mut check_recv_sync_io = true;
-
                     loop {
-                        if check_recv_sync {
-                            match recv_sync.recv() {
-                                Ok(k) => {
-                                    darpi::rayon::spawn(k)
-                                },
-                                Err(_) => {
-                                    check_recv_sync = false;
-                                },
-                            };
-                        }
-
-                        if check_recv_sync_io {
-                            match recv_sync_io.recv() {
-                                Ok(k) => {
-                                    let _ = darpi::tokio::task::spawn_blocking(k);
-                                }
-                                Err(_) => {
-                                    check_recv_sync_io = false;
-                                },
-                            };
-                        }
-
-                        if !check_recv_sync && !check_recv_sync_io {
-                            return;
-                        }
+                        match recv_sync.recv() {
+                            Ok(k) => {
+                                darpi::rayon::spawn(k);
+                            },
+                            Err(_) => {
+                                return;
+                            },
+                        };
+                    }
+                });
+                let current_runtime = darpi::tokio::runtime::Handle::current();
+                let sync_io_job_executor = std::thread::spawn(move || {
+                    loop {
+                    println!("loop spawn blocking");
+                        match recv_sync_io.recv() {
+                            Ok(k) => {
+                                println!("received spawn blocking");
+                                let _ = current_runtime.spawn_blocking(k);
+                                println!("sent spawn blocking");
+                            }
+                            Err(_) => {
+                                println!("end blocking");
+                                return;
+                            },
+                        };
                     }
                 });
 
@@ -404,6 +401,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                             use darpi::RequestMiddleware;
                             #[allow(unused_imports)]
                             use darpi::ResponseMiddleware;
+                            use darpi::{RequestJobFactory, ResponseJobFactory};
                             use darpi::Handler;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
@@ -459,6 +457,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                     r2.unwrap();
 
                     let _ = sync_job_executor.join().unwrap();
+                    let _ = sync_io_job_executor.join().unwrap();
                 };
                 Ok(res.await)
              }

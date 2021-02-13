@@ -1,6 +1,6 @@
 use darpi::{
     app, handler, job, job_factory, logger::DefaultFormat, req_formatter, resp_formatter, Error,
-    Method, Path, Query, RequestJobFactory, ResponseJobFactory,
+    Method, Path, Query,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
@@ -47,8 +47,15 @@ async fn first_sync_job1() -> job::Job {
     })
 }
 
+#[job_factory(Response)]
+async fn first_sync_io_job() -> job::Job {
+    job::Job::IOBlocking(|| {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        println!("sync io finished in the background");
+    })
+}
+
 #[handler({
-    container: Container,
     jobs: {
         request: [],
         response: [first_sync_job1]
@@ -66,13 +73,13 @@ async fn main() -> Result<(), darpi::Error> {
 
     app!({
         address: "127.0.0.1:3000",
-        container : {
+        container: {
             factory: make_container,
             type: Container
         },
         jobs: {
             request: [],
-            response: [first_sync_job]
+            response: [first_sync_io_job]
         },
         middleware: {
             request: [log_request(DefaultFormat)],

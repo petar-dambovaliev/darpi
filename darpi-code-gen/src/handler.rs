@@ -280,6 +280,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                use darpi::RequestMiddleware;
                #[allow(unused_imports)]
                use darpi::ResponseMiddleware;
+               use darpi::{RequestJobFactory, ResponseJobFactory};
 
                 #(#middleware_req )*
                 #(#jobs_req )*
