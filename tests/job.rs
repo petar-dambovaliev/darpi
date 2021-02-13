@@ -1,4 +1,4 @@
-use darpi::{app, handler, job, job_factory, logger::DefaultFormat, Error, Method, Path, Query};
+use darpi::{app, handler, job, job_factory, logger::DefaultFormat, Method, Path, Query};
 use darpi_middleware::{log_request, log_response};
 use env_logger;
 use futures_util::FutureExt;
@@ -36,7 +36,7 @@ async fn first_sync_job() -> job::Job {
 async fn first_sync_job1() -> job::Job {
     job::Job::CpuBound(|| {
         let mut r = 0;
-        for i in 0..10000000 {
+        for _ in 0..10000000 {
             r += 1;
         }
         println!("first_sync_job1 finished in the background. {}", r)

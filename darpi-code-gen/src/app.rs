@@ -1,12 +1,13 @@
 //use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
-use md5;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use syn::parse::{Error as SynError, Parse, ParseStream, Result as SynResult};
 use syn::parse_quote::ParseQuote;
+
 use syn::{
     braced, bracketed, punctuated::Punctuated, token, Error, Expr as SynExpr, Expr, ExprCall,
     ExprLit, ExprPath, Ident, LitStr,
@@ -37,7 +38,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
         is,
         body_assert,
         body_assert_def,
-    } = make_handlers(handlers);
+    } = make_handlers(handlers)?;
 
     let route_possibilities = quote! {
         use std::convert::TryFrom;
@@ -481,7 +482,7 @@ struct HandlerTokens {
     body_assert_def: Vec<proc_macro2::TokenStream>,
 }
 
-fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
+fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> Result<HandlerTokens, SynError> {
     let mut is = vec![];
     let mut routes = vec![];
     let mut routes_match = vec![];
@@ -490,7 +491,7 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
     let route_arg_assert = vec![];
     let route_arg_assert_def = vec![];
 
-    handlers.iter().for_each(|el| {
+    for el in handlers.iter() {
         let handler = el
             .handler
             .path
@@ -502,9 +503,18 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
 
         let method = el.method.path.segments.to_token_stream();
         let route = el.route.clone();
+        let variant_name = format!("{}{}", handler.clone(), method.clone());
+        let variant_name: String = variant_name
+            .chars()
+            .map(|ch| {
+                if ch.is_alphanumeric() {
+                    return ch;
+                }
+                '_'
+            })
+            .collect();
 
-        let hash = md5::compute(format!("{}{}", handler.clone(), method.clone()));
-        let variant_name = format_ident!("a{}", format!("{:?}", hash));
+        let variant_name = format_ident!("{}", variant_name);
         let variant_value = el
             .handler
             .path
@@ -569,7 +579,7 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
                 Handler::call(&#variant_value, &mut args).await
             }
         });
-    });
+    }
 
     routes.sort_by(|left, right| {
         let left_matches: Vec<usize> = left.1.match_indices('{').map(|t| t.0).collect();
@@ -596,7 +606,7 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
 
     let routes: Vec<proc_macro2::TokenStream> = routes.into_iter().map(|(ts, _)| ts).collect();
 
-    HandlerTokens {
+    Ok(HandlerTokens {
         routes,
         route_arg_assert,
         route_arg_assert_def,
@@ -604,7 +614,7 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
         is,
         body_assert,
         body_assert_def,
-    }
+    })
 }
 
 #[derive(Debug)]
@@ -850,6 +860,25 @@ impl Parse for Config {
                 let br;
                 let _ = bracketed!(br in content);
                 let h: Punctuated<Handler, token::Comma> = Punctuated::parse(&br)?;
+
+                let mut handler_validation = HashMap::new();
+
+                for h in h.iter() {
+                    let key = format!(
+                        "{}{}",
+                        h.route.lit.to_token_stream(),
+                        h.method.path.to_token_stream()
+                    );
+
+                    if handler_validation.get(&key).is_some() {
+                        return Err(SynError::new(
+                            h.brace.span,
+                            "identical handler already defined",
+                        ));
+                    }
+                    handler_validation.insert(key, ());
+                }
+
                 handlers = Some(h);
                 continue;
             }
@@ -885,6 +914,7 @@ impl Parse for Config {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Handler {
+    brace: token::Brace,
     route: ExprLit,
     method: ExprPath,
     handler: ExprPath,
@@ -946,6 +976,7 @@ impl Parse for Handler {
         };
 
         return Ok(Handler {
+            brace,
             route,
             method,
             handler,
