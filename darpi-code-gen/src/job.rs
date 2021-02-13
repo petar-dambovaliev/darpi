@@ -3,10 +3,7 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use quote::{ToTokens, TokenStreamExt};
-use syn::{
-    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, ReturnType,
-    Type,
-};
+use syn::{parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, Type};
 
 pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(input as ItemFn);

@@ -1,4 +1,4 @@
-use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
+//use crate::handler::{HAS_NO_PATH_ARGS_PREFIX, HAS_PATH_ARGS_PREFIX, NO_BODY_PREFIX};
 use md5;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
@@ -61,13 +61,13 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
 
         (
             quote! {module: std::sync::Arc<#patj>,},
-            quote! {let module = std::sync::Arc::new(#make_container_func());},
+            quote! {let module = std::sync::Arc::new(#make_container_func);},
             quote! {module: module,},
         )
     });
 
     let (mut middleware_req, mut middleware_res) =
-        config.middleware.map_or(Default::default(), |mut middleware| {
+        config.middleware.map_or(Default::default(), |middleware| {
             let mut middleware_req = vec![];
             let mut middleware_res = vec![];
             let mut i = 0u16;
@@ -190,7 +190,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
             )
         });
 
-    let (jobs_req, jobs_res) = config.jobs.map_or(Default::default(), |mut jobs| {
+    let (jobs_req, jobs_res) = config.jobs.map_or(Default::default(), |jobs| {
         let mut jobs_req = vec![];
         let mut jobs_res = vec![];
 
@@ -199,7 +199,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 let (name, m_args) = match e {
                     Func::Call(ec) => {
                         let name = ec.func.to_token_stream();
-                        let mut m_args: Vec<proc_macro2::TokenStream> = ec
+                        let m_args: Vec<proc_macro2::TokenStream> = ec
                             .args
                             .iter()
                             .map(|arg| {
@@ -241,7 +241,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 let (name, m_args) = match e {
                     Func::Call(ec) => {
                         let name = ec.func.to_token_stream();
-                        let mut m_args: Vec<proc_macro2::TokenStream> = ec
+                        let m_args: Vec<proc_macro2::TokenStream> = ec
                             .args
                             .iter()
                             .map(|arg| {
@@ -361,21 +361,17 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 let current_runtime = darpi::tokio::runtime::Handle::current();
                 let sync_io_job_executor = std::thread::spawn(move || {
                     loop {
-                    println!("loop spawn blocking");
                         match recv_sync_io.recv() {
                             Ok(k) => {
-                                println!("received spawn blocking");
                                 let _ = current_runtime.spawn_blocking(k);
-                                println!("sent spawn blocking");
                             }
                             Err(_) => {
-                                println!("end blocking");
                                 return;
                             },
                         };
                     }
                 });
-
+                use darpi::futures::future::BoxFuture;
                 let (send, mut recv) = tokio::sync::mpsc::unbounded_channel();
                 let job_executor = tokio::spawn(async move {
                     loop {
@@ -489,10 +485,10 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
     let mut is = vec![];
     let mut routes = vec![];
     let mut routes_match = vec![];
-    let mut body_assert = vec![];
-    let mut body_assert_def = vec![];
-    let mut route_arg_assert = vec![];
-    let mut route_arg_assert_def = vec![];
+    let body_assert = vec![];
+    let body_assert_def = vec![];
+    let route_arg_assert = vec![];
+    let route_arg_assert_def = vec![];
 
     handlers.iter().for_each(|el| {
         let handler = el
@@ -516,12 +512,12 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
             .expect("cannot get handler path ident");
 
         let method_name = el.method.path.segments.last().unwrap();
-        let mut f_name = format_ident!("assert_has_no_path_args_{}", variant_value);
-        let mut t_name = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, variant_value);
+        // let mut f_name = format_ident!("assert_has_no_path_args_{}", variant_value);
+        // let mut t_name = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, variant_value);
 
         if route.clone().to_token_stream().to_string().contains('{') {
-            f_name = format_ident!("assert_has_path_args_{}", variant_value);
-            t_name = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, variant_value);
+            // f_name = format_ident!("assert_has_path_args_{}", variant_value);
+            // t_name = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, variant_value);
         }
 
         //todo fix use the handler path
@@ -531,8 +527,8 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> HandlerTokens {
         // });
 
         if method_name.ident == "GET" {
-            let f_name = format_ident!("assert_no_body_{}", variant_value);
-            let t_name = format_ident!("{}_{}", NO_BODY_PREFIX, variant_value);
+            // let f_name = format_ident!("assert_no_body_{}", variant_value);
+            // let t_name = format_ident!("{}_{}", NO_BODY_PREFIX, variant_value);
             // body_assert_def.push(quote! {fn #f_name<T>() where T: #t_name {}});
             // body_assert.push(quote! {
             //     #f_name::<#variant_value>();
@@ -639,7 +635,7 @@ impl Parse for Address {
 
 #[derive(Debug)]
 pub(crate) struct Container {
-    pub factory: syn::Path,
+    pub factory: ExprCall,
     pub ttype: syn::Path,
 }
 
@@ -648,7 +644,7 @@ impl Parse for Container {
         let name: Ident = input.parse()?;
         let _: token::Colon = input.parse()?;
 
-        let mut factory: Option<syn::Path> = None;
+        let mut factory: Option<ExprCall> = None;
         let mut ttype: Option<syn::Path> = None;
 
         let content;
@@ -668,7 +664,7 @@ impl Parse for Container {
             let _: token::Colon = content.parse()?;
 
             if key == "factory" {
-                let f: syn::Path = content.parse()?;
+                let f: ExprCall = content.parse()?;
                 factory = Some(f);
                 continue;
             }
@@ -717,7 +713,16 @@ impl Func {
     pub fn get_args(&self) -> Punctuated<Expr, token::Comma> {
         match self {
             Self::Call(ec) => ec.args.clone(),
-            Self::Path(ep) => Default::default(),
+            Self::Path(_) => Default::default(),
+        }
+    }
+}
+
+impl ToTokens for Func {
+    fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
+        match self {
+            Self::Call(ec) => ec.to_tokens(tokens),
+            Self::Path(ep) => ep.to_tokens(tokens),
         }
     }
 }
@@ -742,7 +747,7 @@ pub(crate) struct ReqResArray {
 
 impl Parse for ReqResArray {
     fn parse(input: ParseStream) -> SynResult<Self> {
-        let name: Ident = input.parse()?;
+        let _: Ident = input.parse()?;
         let _: token::Colon = input.parse()?;
 
         let content;

@@ -1,10 +1,6 @@
-use darpi::{
-    app, handler, job, job_factory, logger::DefaultFormat, req_formatter, resp_formatter, Error,
-    Method, Path, Query,
-};
+use darpi::{app, handler, job, job_factory, logger::DefaultFormat, Error, Method, Path, Query};
 use darpi_middleware::{log_request, log_response};
 use env_logger;
-use futures_util::future::BoxFuture;
 use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use shaku::module;
@@ -74,7 +70,7 @@ async fn main() -> Result<(), darpi::Error> {
     app!({
         address: "127.0.0.1:3000",
         container: {
-            factory: make_container,
+            factory: make_container(),
             type: Container
         },
         jobs: {

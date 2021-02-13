@@ -4,7 +4,7 @@ use darpi::{
     header::{HeaderMap, HeaderValue, AUTHORIZATION},
     middleware,
     response::ResponderError,
-    Body, RequestParts,
+    RequestParts,
 };
 use derive_more::Display;
 pub use jsonwebtoken::*;

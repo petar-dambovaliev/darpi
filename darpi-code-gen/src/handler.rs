@@ -15,7 +15,7 @@ use syn::{
 
 pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
 pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
-pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
+//pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
 pub(crate) const MODULE_PREFIX: &str = "module";
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
