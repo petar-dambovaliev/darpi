@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use syn::parse::Parse;
 //use syn::parse_quote::ParseQuote;
 //use syn::punctuated::Punctuated;
+use syn::punctuated::Punctuated;
 use syn::{
     braced, parse::ParseStream, parse_macro_input, token, Error, Expr, ExprLit, FnArg,
     GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Result as SynResult, Type,
@@ -28,7 +29,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     }
 
     let func_name = &func.sig.ident;
-    let module_ident = format_ident!("{}", MODULE_PREFIX);
+    let module_ident = quote! {args.container};
     let mut make_args = vec![];
     let mut give_args = vec![];
     let mut n_args = 0u8;
@@ -196,7 +197,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut i = 0_u32;
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
-            let h_args = match make_handler_args(tp, i, &module_ident, req_len, res_len) {
+            let h_args = match make_handler_args(tp, i, module_ident.clone(), req_len, res_len) {
                 Ok(k) => k,
                 Err(e) => return e,
             };
@@ -391,10 +392,11 @@ fn get_res_middleware_arg(
     m_args
 }
 
+//todo fix last path
 fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
     let inner = &last.arguments;
     quote! {
-        let #arg_name: #last = match &parts.uri.query() {
+        let #arg_name: #last = match &args.request_parts.uri.query() {
             Some(q) => {
                 let #arg_name: #last = match #inner::from_query(q) {
                     Ok(w) => Some(w),
@@ -407,21 +409,26 @@ fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::Tok
     }
 }
 
-fn make_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
+fn make_query(
+    arg_name: &Ident,
+    format: Punctuated<Ident, token::Colon2>,
+    full: TypePath,
+) -> proc_macro2::TokenStream {
     let respond_err = make_respond_err(
         quote! {respond_to_err},
         quote! {darpi::request::QueryPayloadError},
     );
+    let inner = full.path.segments.last().cloned().unwrap().arguments;
     quote! {
         #respond_err
-        let #arg_name = match parts.uri.query() {
+        let #arg_name = match args.request_parts.uri.query() {
             Some(q) => q,
-            None => return Ok(respond_to_err::<#last>(darpi::request::QueryPayloadError::NotExist))
+            None => return Ok(respond_to_err::#inner(darpi::request::QueryPayloadError::NotExist))
         };
 
-        let #arg_name: #last = match #last::from_query(#arg_name) {
+        let #arg_name: #full = match #format::from_query(#arg_name) {
             Ok(q) => q,
-            Err(e) => return Ok(respond_to_err::<#last>(e))
+            Err(e) => return Ok(respond_to_err::#inner(e))
         };
     }
 }
@@ -480,7 +487,7 @@ fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream
             Err(e) => return Ok(e.respond_err()),
         }
 
-        let #arg_name: #path = match #format::extract(body).await {
+        let #arg_name: #path = match #format::extract(&parts.headers, body).await {
             Ok(q) => q,
             Err(e) => return Ok(e.respond_err())
         };
@@ -500,7 +507,7 @@ enum HandlerArgs {
 fn make_handler_args(
     tp: &PatType,
     i: u32,
-    module_ident: &Ident,
+    module_ident: proc_macro2::TokenStream,
     req_len: usize,
     _res_len: usize,
 ) -> Result<HandlerArgs, TokenStream> {
@@ -533,8 +540,10 @@ fn make_handler_args(
                     }
                 }
             }
-
-            let res = make_query(&arg_name, last);
+            let query_ttype: Punctuated<Ident, token::Colon2> =
+                tp.path.segments.iter().map(|s| s.ident.clone()).collect();
+            //panic!("123 {:#?}", );
+            let res = make_query(&arg_name, query_ttype, tp);
             return Ok(HandlerArgs::Query(arg_name, res));
         }
         //todo return err if there are more than 1 json args

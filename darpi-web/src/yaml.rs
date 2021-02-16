@@ -3,7 +3,7 @@ use crate::response::{Responder, ResponderError};
 use crate::Response;
 use async_trait::async_trait;
 use derive_more::Display;
-use http::{header, HeaderValue};
+use http::{header, HeaderMap, HeaderValue};
 use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -37,7 +37,7 @@ where
         }
         Err(YamlErr::MissingContentType)
     }
-    async fn extract(b: Body) -> Result<Yaml<T>, YamlErr> {
+    async fn extract(headers: &HeaderMap, b: Body) -> Result<Yaml<T>, YamlErr> {
         Self::deserialize_future(b).await
     }
 }

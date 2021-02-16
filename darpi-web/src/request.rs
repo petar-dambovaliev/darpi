@@ -1,7 +1,7 @@
 use crate::response::ResponderError;
 use async_trait::async_trait;
 use derive_more::{Display, From};
-use http::HeaderValue;
+use http::{HeaderMap, HeaderValue};
 use hyper::Body;
 use serde::de;
 use serde_urlencoded;
@@ -15,7 +15,7 @@ where
     async fn assert_content_type(_content_type: Option<&HeaderValue>) -> Result<(), E> {
         Ok(())
     }
-    async fn extract(b: Body) -> Result<T, E>;
+    async fn extract(headers: &HeaderMap, b: Body) -> Result<T, E>;
 }
 
 #[derive(Debug, Display, From)]

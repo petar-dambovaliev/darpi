@@ -1,4 +1,4 @@
-use darpi::{app, handler, job, job_factory, logger::DefaultFormat, Method, Path, Query};
+use darpi::{app, handler, job::Job, job_factory, logger::DefaultFormat, Method, Path, Query};
 use darpi_middleware::{log_request, log_response};
 use env_logger;
 use futures_util::FutureExt;
@@ -23,18 +23,18 @@ pub struct Name {
 }
 
 #[job_factory(Request)]
-async fn first_async_job() -> job::Job {
-    job::Job::Future(async { println!("first job in the background.") }.boxed())
+async fn first_async_job() -> Job {
+    Job::Future(async { println!("first job in the background.") }.boxed())
 }
 
 #[job_factory(Response)]
-async fn first_sync_job() -> job::Job {
-    job::Job::CpuBound(|| println!("first_sync_job in the background"))
+async fn first_sync_job() -> Job {
+    Job::CpuBound(|| println!("first_sync_job in the background"))
 }
 
 #[job_factory(Response)]
-async fn first_sync_job1() -> job::Job {
-    job::Job::CpuBound(|| {
+async fn first_sync_job1() -> Job {
+    Job::CpuBound(|| {
         let mut r = 0;
         for _ in 0..10000000 {
             r += 1;
@@ -44,8 +44,8 @@ async fn first_sync_job1() -> job::Job {
 }
 
 #[job_factory(Response)]
-async fn first_sync_io_job() -> job::Job {
-    job::Job::IOBlocking(|| {
+async fn first_sync_io_job() -> Job {
+    Job::IOBlocking(|| {
         std::thread::sleep(std::time::Duration::from_secs(2));
         println!("sync io finished in the background");
     })

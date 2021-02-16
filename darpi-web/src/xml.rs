@@ -4,7 +4,7 @@ use crate::Response;
 use async_trait::async_trait;
 use bytes::buf::BufExt;
 use derive_more::Display;
-use http::{header, HeaderValue};
+use http::{header, HeaderMap, HeaderValue};
 use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -38,7 +38,7 @@ where
         }
         Err(XmlErr::MissingContentType)
     }
-    async fn extract(b: Body) -> Result<Xml<T>, XmlErr> {
+    async fn extract(headers: &HeaderMap, b: Body) -> Result<Xml<T>, XmlErr> {
         Self::deserialize_future(b).await
     }
 }

@@ -44,3 +44,5 @@ derive_more = "0.99.11"
 darpi-middleware = { path = "./darpi-middleware" }
 darpi-headers = { path = "./darpi-headers" }
 env_logger = "0.8.2"
+async-graphql = "2.5.4"
+slab = "0.4.2"
