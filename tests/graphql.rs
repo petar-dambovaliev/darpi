@@ -3,7 +3,7 @@ use async_graphql::{Context, Enum, Interface, Object, Result};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use darpi::{app, handler, logger::DefaultFormat, Method};
 use darpi_graphql::{GraphQLBody, Request, Response};
-use darpi_middleware::{log_request, log_response};
+use darpi_middleware::{body_size_limit, log_request, log_response};
 use env_logger;
 use shaku::module;
 use shaku::{Component, Interface};
@@ -419,6 +419,16 @@ async fn index_post(
     #[body] req: GraphQLBody<Request>,
 ) -> Response {
     schema.get().execute(req.0.into_inner()).await.into()
+}
+
+#[handler({
+    container: Container,
+        middleware: {
+            request: [body_size_limit(90)]
+        }
+})]
+pub(crate) async fn home() -> String {
+    format!("home")
 }
 
 //

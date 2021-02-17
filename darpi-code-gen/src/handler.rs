@@ -69,8 +69,16 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     let m_args: Vec<proc_macro2::TokenStream> =
                         get_req_middleware_arg(e, &mut sorter, rm.len());
 
+                    let m_args = if m_args.len() > 1 {
+                        quote! {(#(#m_args ,)*)}
+                    } else if m_args.len() == 1 {
+                        quote! {#(#m_args ,)*}
+                    } else {
+                        quote! {()}
+                    };
+
                     middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, (#(#m_args ,)*)).await {
+                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, #m_args).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -90,8 +98,16 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     let m_args: Vec<proc_macro2::TokenStream> =
                         get_res_middleware_arg(e, &mut sorter, rm.len(), res_len);
 
+                    let m_args = if m_args.len() > 1 {
+                        quote! {(#(#m_args ,)*)}
+                    } else if m_args.len() == 1 {
+                        quote! {#(#m_args ,)*}
+                    } else {
+                        quote! {()}
+                    };
+
                     middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #r_m_arg_ident = match #name::call(&mut rb, args.container.clone(), #(#m_args ,)*).await {
+                    let #r_m_arg_ident = match #name::call(&mut rb, args.container.clone(), #m_args).await {
                         Ok(k) => k,
                         Err(e) => return Ok(e.respond_err()),
                     };
@@ -269,7 +285,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
         #[darpi::async_trait]
         impl<'a #dummy_t> darpi::Handler<'a, #module_type> for #func_name #dummy_where {
-            async fn call(&self, args: darpi::Args<'a, #module_type>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            async fn call(&self, mut args: darpi::Args<'a, #module_type>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
                #[allow(unused_imports)]
                use shaku::HasComponent;
@@ -312,7 +328,7 @@ fn get_req_middleware_arg(
         .map(|arg| {
             if let Expr::Call(expr_call) = arg {
                 let arg_name = expr_call.func.to_token_stream().to_string();
-                if arg_name == "req_middleware" {
+                if arg_name == "request" {
                     let index: u16 = expr_call
                         .args
                         .first()
@@ -329,7 +345,7 @@ fn get_req_middleware_arg(
                     *sorter += index;
                     let i_ident = format_ident!("m_arg_{}", index);
                     return quote! {#i_ident.clone()};
-                } else if arg_name == "res_middleware" {
+                } else if arg_name == "response" {
                     panic!("request middleware is executed before response middleware. therefore, it cannot ask for response middleware results")
                 }
             }
@@ -350,7 +366,7 @@ fn get_res_middleware_arg(
         .iter()
         .map(|arg| {
             if let Expr::Call(expr_call) = arg {
-                if expr_call.func.clone().to_token_stream().to_string() == "res_middleware" {
+                if expr_call.func.clone().to_token_stream().to_string() == "response" {
                     let index: u16 = expr_call
                         .args
                         .first()
@@ -367,7 +383,7 @@ fn get_res_middleware_arg(
                     *sorter += index;
                     let i_ident = format_ident!("m_arg_{}", index);
                     return quote! {#i_ident.clone()};
-                } else if expr_call.func.to_token_stream().to_string() == "req_middleware" {
+                } else if expr_call.func.to_token_stream().to_string() == "request" {
                     let index: u16 = expr_call
                         .args
                         .first()
