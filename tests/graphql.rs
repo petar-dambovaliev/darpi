@@ -1,7 +1,7 @@
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
-use async_graphql::{Context, Enum, Interface, Object, Result};
+use async_graphql::{Context, Enum, Interface, Object};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use darpi::{app, handler, logger::DefaultFormat, Method, Path};
+use darpi::{app, handler, logger::DefaultFormat, middleware, Body, Method, Path, RequestParts};
 use darpi_graphql::{GraphQLBody, Request, Response};
 use darpi_middleware::{body_size_limit, log_request, log_response};
 use env_logger;
@@ -10,6 +10,7 @@ use shaku::module;
 use shaku::{Component, Interface};
 use slab::Slab;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::sync::Arc;
 
 /// One of the films in the Star Wars Trilogy
@@ -129,7 +130,7 @@ impl QueryRoot {
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
-    ) -> Result<Connection<usize, Human, EmptyFields, EmptyFields>> {
+    ) -> async_graphql::Result<Connection<usize, Human, EmptyFields, EmptyFields>> {
         let humans = ctx
             .data_unchecked::<StarWars>()
             .humans()
@@ -156,7 +157,7 @@ impl QueryRoot {
         before: Option<String>,
         first: Option<i32>,
         last: Option<i32>,
-    ) -> Result<Connection<usize, Droid, EmptyFields, EmptyFields>> {
+    ) -> async_graphql::Result<Connection<usize, Droid, EmptyFields, EmptyFields>> {
         let droids = ctx
             .data_unchecked::<StarWars>()
             .droids()
@@ -187,7 +188,7 @@ async fn query_characters(
     first: Option<i32>,
     last: Option<i32>,
     characters: &[usize],
-) -> Result<Connection<usize, usize, EmptyFields, EmptyFields>> {
+) -> async_graphql::Result<Connection<usize, usize, EmptyFields, EmptyFields>> {
     query(
         after,
         before,
