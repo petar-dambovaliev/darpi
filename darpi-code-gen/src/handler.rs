@@ -269,7 +269,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
 
         #[darpi::async_trait]
         impl<'a #dummy_t> darpi::Handler<'a, #module_type> for #func_name #dummy_where {
-            async fn call(&self, args: &mut darpi::Args<'a, #module_type>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
+            async fn call(&self, args: darpi::Args<'a, #module_type>) -> Result<darpi::Response<darpi::Body>, std::convert::Infallible> {
                use darpi::response::Responder;
                #[allow(unused_imports)]
                use shaku::HasComponent;
@@ -482,12 +482,12 @@ fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream
     let inner = &path.path.segments.last().unwrap().arguments;
 
     let output = quote! {
-        match #format::#inner::assert_content_type(parts.headers.get("content-type")).await {
+        match #format::#inner::assert_content_type(args.request_parts.headers.get("content-type")).await {
             Ok(()) => {}
             Err(e) => return Ok(e.respond_err()),
         }
 
-        let #arg_name: #path = match #format::extract(&parts.headers, body).await {
+        let #arg_name: #path = match #format::extract(&args.request_parts.headers, args.body).await {
             Ok(q) => q,
             Err(e) => return Ok(e.respond_err())
         };

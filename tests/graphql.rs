@@ -523,7 +523,9 @@ impl FromRequestBody<GraphQLBody<Request>, GraphQLError> for GraphQLBody<Request
                     return;
                 }
             }
-        });
+        })
+        .await
+        .unwrap();
 
         Ok(GraphQLBody(Request(
             BatchRequest(
@@ -543,8 +545,8 @@ impl FromRequestBody<GraphQLBody<Request>, GraphQLError> for GraphQLBody<Request
     }
 }
 
-#[test]
-fn main() {}
+// #[test]
+// fn main() {}
 //
 // //todo if there is #[inject] but no container given give an error
 #[handler({
@@ -557,44 +559,46 @@ async fn index_get(
     schema.get().execute(req.0.into_inner()).await.into()
 }
 
-//
-// #[handler({
-// container: Container
-// })]
-// async fn index_post(#[inject] schema: Arc<dyn SchemaGetter>, #[body] req: Request) -> Response {
-//     schema.get().execute(req.into_inner()).await.into()
-// }
+#[handler({
+container: Container
+})]
+async fn index_post(
+    #[inject] schema: Arc<dyn SchemaGetter>,
+    #[body] req: GraphQLBody<Request>,
+) -> Response {
+    schema.get().execute(req.0.into_inner()).await.into()
+}
+
 //
 // //RUST_LOG=darpi=info cargo test --test graphql -- --nocapture
-// //#[tokio::test]
-// #[tokio::test]
-// async fn main() -> Result<(), darpi::Error> {
-//     env_logger::builder().is_test(true).try_init().unwrap();
-//
-//     app!({
-//         address: "127.0.0.1:3000",
-//         container: {
-//             factory: make_container(),
-//             type: Container
-//         },
-//         jobs: {
-//             request: [],
-//             response: []
-//         },
-//         middleware: {
-//             request: [log_request(DefaultFormat)],
-//             response: [log_response(DefaultFormat, request(0))]
-//         },
-//         handlers: [{
-//             route: "/",
-//             method: Method::GET,
-//             handler: index_get
-//         },{
-//             route: "/",
-//             method: Method::POST,
-//             handler: index_post
-//         }]
-//     })
-//     .run()
-//     .await
-// }
+#[tokio::test]
+async fn main() -> Result<(), darpi::Error> {
+    env_logger::builder().is_test(true).try_init().unwrap();
+
+    app!({
+        address: "127.0.0.1:3000",
+        container: {
+            factory: make_container(),
+            type: Container
+        },
+        jobs: {
+            request: [],
+            response: []
+        },
+        middleware: {
+            request: [log_request(DefaultFormat)],
+            response: [log_response(DefaultFormat, request(0))]
+        },
+        handlers: [{
+            route: "/",
+            method: Method::GET,
+            handler: index_get
+        },{
+            route: "/",
+            method: Method::POST,
+            handler: index_post
+        }]
+    })
+    .run()
+    .await
+}

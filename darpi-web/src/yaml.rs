@@ -37,7 +37,7 @@ where
         }
         Err(YamlErr::MissingContentType)
     }
-    async fn extract(headers: &HeaderMap, b: Body) -> Result<Yaml<T>, YamlErr> {
+    async fn extract(_: &HeaderMap, b: Body) -> Result<Yaml<T>, YamlErr> {
         Self::deserialize_future(b).await
     }
 }

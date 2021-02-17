@@ -38,7 +38,7 @@ where
         }
         Err(XmlErr::MissingContentType)
     }
-    async fn extract(headers: &HeaderMap, b: Body) -> Result<Xml<T>, XmlErr> {
+    async fn extract(_: &HeaderMap, b: Body) -> Result<Xml<T>, XmlErr> {
         Self::deserialize_future(b).await
     }
 }

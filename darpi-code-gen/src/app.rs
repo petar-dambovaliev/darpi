@@ -567,16 +567,16 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> Result<HandlerT
 
         routes_match.push(quote! {
             RoutePossibilities::#variant_name => {
-                let mut args = darpi::Args{
+                let args = darpi::Args{
                     request_parts: &mut parts,
                     container: inner_module.clone(),
-                    body: &mut body,
+                    body: body,
                     route_args: handler.1.1,
                     async_job_sender: inner_send.clone(),
                     sync_cpu_job_sender: inner_send_sync.clone(),
                     sync_io_job_sender: inner_send_sync_io.clone(),
                 };
-                Handler::call(&#variant_value, &mut args).await
+                Handler::call(&#variant_value, args).await
             }
         });
     }

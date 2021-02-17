@@ -41,7 +41,7 @@ where
         }
         Err(JsonErr::MissingContentType)
     }
-    async fn extract(headers: &HeaderMap, b: Body) -> Result<Json<T>, JsonErr> {
+    async fn extract(_: &HeaderMap, b: Body) -> Result<Json<T>, JsonErr> {
         Self::deserialize_future(b).await
     }
 }
