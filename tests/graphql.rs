@@ -1,10 +1,11 @@
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Enum, Interface, Object, Result};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use darpi::{app, handler, logger::DefaultFormat, Method};
+use darpi::{app, handler, logger::DefaultFormat, Method, Path};
 use darpi_graphql::{GraphQLBody, Request, Response};
 use darpi_middleware::{body_size_limit, log_request, log_response};
 use env_logger;
+use serde::{Deserialize, Serialize};
 use shaku::module;
 use shaku::{Component, Interface};
 use slab::Slab;
@@ -429,6 +430,21 @@ async fn index_post(
 })]
 pub(crate) async fn home() -> String {
     format!("home")
+}
+
+#[derive(Deserialize, Serialize, Debug, Path)]
+pub struct Name {
+    name: String,
+}
+
+#[handler({
+    container: Container,
+    middleware: {
+        request: [body_size_limit(64)]
+    }
+})]
+pub(crate) async fn do_something(#[path] p: Name) -> String {
+    format!("user {}", p.name)
 }
 
 //

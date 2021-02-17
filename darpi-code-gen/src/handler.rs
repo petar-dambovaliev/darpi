@@ -470,7 +470,7 @@ fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStr
     );
     quote! {
         #respond_err
-        let json_args = match darpi::serde_json::to_string(&req_args) {
+        let json_args = match darpi::serde_json::to_string(&args.route_args) {
             Ok(k) => k,
             Err(e) => {
                 return Ok(respond_to_path_err::<#last>(
