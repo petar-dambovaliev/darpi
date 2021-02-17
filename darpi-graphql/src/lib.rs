@@ -124,7 +124,7 @@ impl FromRequestBody<GraphQLBody<BatchRequest>, GraphQLError> for GraphQLBody<Ba
                 content_type,
                 rx.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
                     .into_async_read(),
-                Default::default(),
+                Default::default(), //todo make config as argument or allow them to be passed from somewhere
             )
             .await
             .map_err(|e| GraphQLError::ParseRequest(e))?,

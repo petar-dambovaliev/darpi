@@ -1,13 +1,10 @@
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
-use async_graphql::http::MultipartOptions;
-use async_graphql::ParseRequestError;
 use async_graphql::{Context, Enum, Interface, Object, Result};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use darpi::header::HeaderValue;
-use darpi::request::FromRequestBody;
 use darpi::{
     app, handler, job::Job, job_factory, logger::DefaultFormat, Body, Method, Path, Query,
 };
+use darpi_graphql::{GraphQLBody, Request, Response};
 use darpi_middleware::{log_request, log_response};
 use env_logger;
 use futures_util::future::{self, Ready};
@@ -413,138 +410,6 @@ module! {
     }
 }
 
-#[derive(Debug, Deserialize, Query)]
-pub struct Request(pub async_graphql::Request);
-
-impl Request {
-    /// Unwraps the value to `async_graphql::Request`.
-    #[must_use]
-    pub fn into_inner(self) -> async_graphql::Request {
-        self.0
-    }
-}
-
-/// Extractor for GraphQL batch request.
-///
-/// `async_graphql::http::MultipartOptions` allows to configure extraction process.
-///
-#[derive(Debug, Deserialize, Query)]
-pub struct BatchRequest(pub async_graphql::BatchRequest);
-
-impl BatchRequest {
-    /// Unwraps the value to `async_graphql::BatchRequest`.
-    #[must_use]
-    pub fn into_inner(self) -> async_graphql::BatchRequest {
-        self.0
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Response(pub async_graphql::Response);
-
-impl darpi::response::Responder for Response {
-    fn respond(self) -> darpi::Response<darpi::Body> {
-        unimplemented!()
-    }
-}
-
-impl From<async_graphql::Response> for Response {
-    fn from(r: async_graphql::Response) -> Self {
-        Self(r)
-    }
-}
-
-struct GraphQLBody<T>(pub T);
-
-use async_trait::async_trait;
-use darpi::body::Bytes;
-use darpi::response::ResponderError;
-use derive_more::Display;
-use http::HeaderMap;
-use serde::de::DeserializeOwned;
-use tokio::sync::mpsc::{Receiver, Sender};
-
-#[derive(Display)]
-enum GraphQLError {
-    ParseRequest(ParseRequestError),
-    Hyper(hyper::Error),
-}
-
-impl From<ParseRequestError> for GraphQLError {
-    fn from(e: ParseRequestError) -> Self {
-        Self::ParseRequest(e)
-    }
-}
-
-impl From<hyper::Error> for GraphQLError {
-    fn from(e: hyper::Error) -> Self {
-        Self::Hyper(e)
-    }
-}
-
-impl ResponderError for GraphQLError {}
-
-impl<'de, T> Deserialize<'de> for GraphQLBody<T>
-where
-    T: DeserializeOwned,
-{
-    fn deserialize<D>(deserializer: D) -> Result<Self, <D as Deserializer<'de>>::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let deser = T::deserialize(deserializer)?.into();
-        Ok(GraphQLBody(deser))
-    }
-}
-
-#[async_trait]
-impl FromRequestBody<GraphQLBody<Request>, GraphQLError> for GraphQLBody<Request> {
-    async fn extract(
-        headers: &HeaderMap,
-        mut b: darpi::Body,
-    ) -> Result<GraphQLBody<Request>, GraphQLError> {
-        let content_type = headers
-            .get(http::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .map(|value| value.to_string());
-
-        let (mut tx, rx): (
-            Sender<std::result::Result<Bytes, _>>,
-            Receiver<std::result::Result<Bytes, _>>,
-        ) = tokio::sync::mpsc::channel(16);
-
-        tokio::spawn(async move {
-            while let Some(item) = b.next().await {
-                if tx
-                    .send(item) //.map_err(|e| GraphQLError::Hyper(e))
-                    .await
-                    .is_err()
-                {
-                    return;
-                }
-            }
-        })
-        .await
-        .unwrap();
-
-        Ok(GraphQLBody(Request(
-            BatchRequest(
-                async_graphql::http::receive_batch_body(
-                    content_type,
-                    rx.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
-                        .into_async_read(),
-                    Default::default(),
-                )
-                .await
-                .map_err(|e| GraphQLError::ParseRequest(e))?,
-            )
-            .0
-            .into_single()
-            .map_err(|e| GraphQLError::ParseRequest(e))?,
-        )))
-    }
-}
-
 // #[test]
 // fn main() {}
 //
@@ -560,7 +425,7 @@ async fn index_get(
 }
 
 #[handler({
-container: Container
+    container: Container
 })]
 async fn index_post(
     #[inject] schema: Arc<dyn SchemaGetter>,
