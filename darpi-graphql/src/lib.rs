@@ -107,13 +107,9 @@ impl FromRequestBody<GraphQLBody<BatchRequest>, GraphQLError> for GraphQLBody<Ba
             Receiver<std::result::Result<Bytes, _>>,
         ) = tokio::sync::mpsc::channel(16);
 
-        tokio::spawn(async move {
+        tokio::runtime::Handle::current().spawn(async move {
             while let Some(item) = b.next().await {
-                if tx
-                    .send(item) //.map_err(|e| GraphQLError::Hyper(e))
-                    .await
-                    .is_err()
-                {
+                if tx.send(item).await.is_err() {
                     return;
                 }
             }

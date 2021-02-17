@@ -1,24 +1,14 @@
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Enum, Interface, Object, Result};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use darpi::{
-    app, handler, job::Job, job_factory, logger::DefaultFormat, Body, Method, Path, Query,
-};
+use darpi::{app, handler, logger::DefaultFormat, Method};
 use darpi_graphql::{GraphQLBody, Request, Response};
 use darpi_middleware::{log_request, log_response};
 use env_logger;
-use futures_util::future::{self, Ready};
-use futures_util::FutureExt;
-use futures_util::{StreamExt, TryStreamExt};
-use serde::{Deserialize, Deserializer, Serialize};
 use shaku::module;
-use shaku::{Component, HasComponent, Interface};
+use shaku::{Component, Interface};
 use slab::Slab;
 use std::collections::HashMap;
-use std::convert::Infallible;
-use std::future::Future;
-use std::io::{self, ErrorKind};
-use std::pin::Pin;
 use std::sync::Arc;
 
 /// One of the films in the Star Wars Trilogy
@@ -410,9 +400,6 @@ module! {
     }
 }
 
-// #[test]
-// fn main() {}
-//
 // //todo if there is #[inject] but no container given give an error
 #[handler({
     container: Container
