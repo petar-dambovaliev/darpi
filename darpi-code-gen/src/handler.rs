@@ -580,7 +580,7 @@ fn make_handler_args(
             return Ok(HandlerArgs::Module(arg_name, method_resolve));
         }
 
-        if attr_ident == "middleware.request" {
+        if attr_ident == "middleware::request" {
             let index: ExprLit = match attr.parse_args() {
                 Ok(el) => el,
                 Err(_) => {
@@ -597,7 +597,7 @@ fn make_handler_args(
                         Err(_) => {
                             return Err(Error::new(
                                 Span::call_site(),
-                                format!("invalid middleware.request index"),
+                                format!("invalid middleware::request index"),
                             )
                             .to_compile_error()
                             .into())
@@ -608,7 +608,7 @@ fn make_handler_args(
                 _ => {
                     return Err(Error::new(
                         Span::call_site(),
-                        format!("invalid middleware.request index"),
+                        format!("invalid middleware::request index"),
                     )
                     .to_compile_error()
                     .into())
@@ -618,7 +618,7 @@ fn make_handler_args(
             if index >= req_len as u64 {
                 return Err(Error::new(
                     Span::call_site(),
-                    format!("invalid req_middleware index {}", index),
+                    format!("invalid middleware::request index {}", index),
                 )
                 .to_compile_error()
                 .into());
@@ -636,9 +636,9 @@ fn make_handler_args(
             ));
         }
 
-        if attr_ident == "middleware.response" {
+        if attr_ident == "middleware::response" {
             return Err(
-                Error::new_spanned(attr_ident, "handlers args cannot refer to `middleware.response` return values because they are ran post handler")
+                Error::new_spanned(attr_ident, "handlers args cannot refer to `middleware::response` return values because they are ran post handler")
                     .to_compile_error()
                     .into(),
             );
