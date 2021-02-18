@@ -145,5 +145,15 @@ pub(crate) async fn roundtrip(
     Ok(res)
 }
 
+#[handler({
+    container: Container,
+    middleware: {
+        request: [roundtrip("blah")]
+    }
+})]
+pub(crate) async fn home(#[middleware::request(0)] m_str: String) -> String {
+    format!("home {}", "")
+}
+
 #[test]
 fn main() {}

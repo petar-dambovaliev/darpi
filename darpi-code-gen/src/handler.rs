@@ -332,11 +332,11 @@ fn get_req_middleware_arg(
                     let index: u16 = expr_call
                         .args
                         .first()
-                        .unwrap()
+                        .expect("missing middleware expr")
                         .to_token_stream()
                         .to_string()
                         .parse()
-                        .unwrap();
+                        .expect("missing middleware expr");
 
                     if index as usize >= m_len {
                         panic!("middleware index out of bounds");
@@ -370,11 +370,11 @@ fn get_res_middleware_arg(
                     let index: u16 = expr_call
                         .args
                         .first()
-                        .unwrap()
+                        .expect("missing res middleware expr")
                         .to_token_stream()
                         .to_string()
                         .parse()
-                        .unwrap();
+                        .expect("missing res middleware expr");
 
                     if index as usize >= m_len {
                         panic!("middleware index out of bounds");
@@ -387,11 +387,11 @@ fn get_res_middleware_arg(
                     let index: u16 = expr_call
                         .args
                         .first()
-                        .unwrap()
+                        .expect("missing res middleware request expr")
                         .to_token_stream()
                         .to_string()
                         .parse()
-                        .unwrap();
+                        .expect("missing res middleware request expr");
 
                     if index as usize >= other_len {
                         panic!("middleware index out of bounds");
@@ -434,7 +434,13 @@ fn make_query(
         quote! {respond_to_err},
         quote! {darpi::request::QueryPayloadError},
     );
-    let inner = full.path.segments.last().cloned().unwrap().arguments;
+    let inner = full
+        .path
+        .segments
+        .last()
+        .cloned()
+        .expect("No query")
+        .arguments;
     quote! {
         #respond_err
         let #arg_name = match args.request_parts.uri.query() {
@@ -495,7 +501,7 @@ fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream
         .iter_mut()
         .for_each(|s| s.arguments = Default::default());
 
-    let inner = &path.path.segments.last().unwrap().arguments;
+    let inner = &path.path.segments.last().expect("no body").arguments;
 
     let output = quote! {
         match #format::#inner::assert_content_type(args.request_parts.headers.get("content-type")).await {
@@ -538,110 +544,134 @@ fn make_handler_args(
         );
     }
 
-    let attr = tp.attrs.first().unwrap();
+    let attr = tp.attrs.first().expect("no handler attr");
 
     if let Type::Path(tp) = *ttype.clone() {
-        let last = tp.path.segments.last().unwrap();
-        let attr_ident = attr.path.get_ident().unwrap();
+        let last = tp
+            .path
+            .segments
+            .last()
+            .expect("no handler last path segment");
 
-        //todo return err if there are more than 1 query args
-        if attr_ident == "query" {
-            if last.ident == "Option" {
-                if let PathArguments::AngleBracketed(ab) = &last.arguments {
-                    if let GenericArgument::Type(t) = ab.args.first().unwrap() {
-                        if let Type::Path(_) = t {
-                            let res = make_optional_query(&arg_name, last);
-                            return Ok(HandlerArgs::Option(arg_name, res));
-                        }
-                    }
-                }
-            }
-            let query_ttype: Punctuated<Ident, token::Colon2> =
-                tp.path.segments.iter().map(|s| s.ident.clone()).collect();
-            //panic!("123 {:#?}", );
-            let res = make_query(&arg_name, query_ttype, tp);
-            return Ok(HandlerArgs::Query(arg_name, res));
-        }
-        //todo return err if there are more than 1 json args
-        if attr_ident == "body" {
-            let res = make_json_body(&arg_name, &tp);
-            return Ok(HandlerArgs::Body(arg_name, res));
-        }
-        //todo return err if there are more than 1 path args
-        if attr_ident == "path" {
-            let res = make_path_args(&arg_name, &last);
-            return Ok(HandlerArgs::Path(arg_name, res));
-        }
+        let attr_ident: Vec<Ident> = attr.path.segments.iter().map(|s| s.ident.clone()).collect();
 
-        if attr_ident == "inject" {
-            let method_resolve = quote! {
-                let #arg_name: #ttype = #module_ident.resolve();
-            };
-            return Ok(HandlerArgs::Module(arg_name, method_resolve));
-        }
-
-        if attr_ident == "middleware::request" {
-            let index: ExprLit = match attr.parse_args() {
-                Ok(el) => el,
-                Err(_) => {
-                    return Err(Error::new(Span::call_site(), format!("missing index"))
-                        .to_compile_error()
-                        .into())
-                }
-            };
-
-            let index = match index.lit {
-                syn::Lit::Int(i) => {
-                    let value = match i.base10_parse::<u64>() {
-                        Ok(k) => k,
-                        Err(_) => {
-                            return Err(Error::new(
-                                Span::call_site(),
-                                format!("invalid middleware::request index"),
-                            )
-                            .to_compile_error()
-                            .into())
-                        }
-                    };
-                    value
-                }
-                _ => {
-                    return Err(Error::new(
-                        Span::call_site(),
-                        format!("invalid middleware::request index"),
-                    )
-                    .to_compile_error()
-                    .into())
-                }
-            };
-
-            if index >= req_len as u64 {
-                return Err(Error::new(
-                    Span::call_site(),
-                    format!("invalid middleware::request index {}", index),
-                )
-                .to_compile_error()
-                .into());
-            }
-
-            let m_arg_ident = format_ident!("m_arg_{}", index);
-            let method_resolve = quote! {
-                let #arg_name: #ttype = #m_arg_ident;
-            };
-            return Ok(HandlerArgs::Middleware(
-                arg_name,
-                method_resolve,
-                index,
-                *ttype.clone(),
-            ));
-        }
-
-        if attr_ident == "middleware::response" {
+        if attr_ident.is_empty() {
             return Err(
-                Error::new_spanned(attr_ident, "handlers args cannot refer to `middleware::response` return values because they are ran post handler")
+                Error::new(Span::call_site(), format!("expected an attribute"))
                     .to_compile_error()
                     .into(),
             );
+        }
+
+        if attr_ident.len() == 1 {
+            let attr_ident = &attr_ident[0];
+
+            //todo return err if there are more than 1 query args
+            if attr_ident == "query" {
+                if last.ident == "Option" {
+                    if let PathArguments::AngleBracketed(ab) = &last.arguments {
+                        if let GenericArgument::Type(t) =
+                            ab.args.first().expect("no handler generic arg")
+                        {
+                            if let Type::Path(_) = t {
+                                let res = make_optional_query(&arg_name, last);
+                                return Ok(HandlerArgs::Option(arg_name, res));
+                            }
+                        }
+                    }
+                }
+                let query_ttype: Punctuated<Ident, token::Colon2> =
+                    tp.path.segments.iter().map(|s| s.ident.clone()).collect();
+                //panic!("123 {:#?}", );
+                let res = make_query(&arg_name, query_ttype, tp);
+                return Ok(HandlerArgs::Query(arg_name, res));
+            }
+            //todo return err if there are more than 1 json args
+            if attr_ident == "body" {
+                let res = make_json_body(&arg_name, &tp);
+                return Ok(HandlerArgs::Body(arg_name, res));
+            }
+            //todo return err if there are more than 1 path args
+            if attr_ident == "path" {
+                let res = make_path_args(&arg_name, &last);
+                return Ok(HandlerArgs::Path(arg_name, res));
+            }
+
+            if attr_ident == "inject" {
+                let method_resolve = quote! {
+                    let #arg_name: #ttype = #module_ident.resolve();
+                };
+                return Ok(HandlerArgs::Module(arg_name, method_resolve));
+            }
+        }
+
+        if attr_ident.len() == 2 {
+            let left = &attr_ident[0];
+            let right = &attr_ident[1];
+
+            if left == "middleware" && right == "request" {
+                let index: ExprLit = match attr.parse_args() {
+                    Ok(el) => el,
+                    Err(_) => {
+                        return Err(Error::new(Span::call_site(), format!("missing index"))
+                            .to_compile_error()
+                            .into())
+                    }
+                };
+
+                let index = match index.lit {
+                    syn::Lit::Int(i) => {
+                        let value = match i.base10_parse::<u64>() {
+                            Ok(k) => k,
+                            Err(_) => {
+                                return Err(Error::new(
+                                    Span::call_site(),
+                                    format!("invalid middleware::request index"),
+                                )
+                                .to_compile_error()
+                                .into())
+                            }
+                        };
+                        value
+                    }
+                    _ => {
+                        return Err(Error::new(
+                            Span::call_site(),
+                            format!("invalid middleware::request index"),
+                        )
+                        .to_compile_error()
+                        .into())
+                    }
+                };
+
+                if index >= req_len as u64 {
+                    return Err(Error::new(
+                        Span::call_site(),
+                        format!("invalid middleware::request index {}", index),
+                    )
+                    .to_compile_error()
+                    .into());
+                }
+
+                let m_arg_ident = format_ident!("m_arg_{}", index);
+                let method_resolve = quote! {
+                    let #arg_name: #ttype = #m_arg_ident;
+                };
+                return Ok(HandlerArgs::Middleware(
+                    arg_name,
+                    method_resolve,
+                    index,
+                    *ttype.clone(),
+                ));
+            }
+
+            if left == "middleware" && right == "response" {
+                return Err(
+                    Error::new_spanned(left, "handlers args cannot refer to `middleware::response` return values because they are ran post handler")
+                        .to_compile_error()
+                        .into(),
+                );
+            }
         }
     }
     Err(Error::new(
