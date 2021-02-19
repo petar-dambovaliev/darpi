@@ -49,7 +49,7 @@ pub async fn authorize(
         Ok(jwt) => {
             let decoded = decode::<Claims>(
                 &jwt,
-                &DecodingKey::from_secret(secret_provider.secret().await.as_ref()),
+                secret_provider.decoding_key().await,
                 &Validation::new(algo_provider.algorithm().await),
             )
             .map_err(|_| Error::JWTTokenError)?;
@@ -86,7 +86,7 @@ pub async fn authorize(
 /// impl UserRole for Role {
 ///     fn is_authorized(&self, claims: &Claims) -> bool {
 ///         let other = Self::from_str(claims.role());
-///         self < &other
+///         &other >= self
 ///     }
 /// }
 ///
@@ -125,19 +125,26 @@ pub trait TokenExtractor: Interface {
 #[derive(Component)]
 #[shaku(interface = JwtSecretProvider)]
 pub struct JwtSecretProviderImpl {
-    secret: String,
+    #[shaku(default = unimplemented!())]
+    encoding_key: jsonwebtoken::EncodingKey,
+    #[shaku(default = unimplemented!())]
+    decoding_key: jsonwebtoken::DecodingKey<'static>,
 }
 
 #[async_trait]
 impl JwtSecretProvider for JwtSecretProviderImpl {
-    async fn secret(&self) -> &str {
-        &self.secret
+    async fn encoding_key(&self) -> &jsonwebtoken::EncodingKey {
+        &self.encoding_key
+    }
+    async fn decoding_key(&self) -> &jsonwebtoken::DecodingKey<'static> {
+        &self.decoding_key
     }
 }
 
 #[async_trait]
 pub trait JwtSecretProvider: Interface {
-    async fn secret(&self) -> &str;
+    async fn encoding_key(&self) -> &jsonwebtoken::EncodingKey;
+    async fn decoding_key(&self) -> &jsonwebtoken::DecodingKey<'static>;
 }
 
 #[derive(Component)]
@@ -186,12 +193,8 @@ impl JwtTokenCreator for JwtTokenCreatorImpl {
             exp: expiration as usize,
         };
         let header = Header::new(self.algo_provider.algorithm().await);
-        encode(
-            &header,
-            &claims,
-            &EncodingKey::from_secret(self.secret_provider.secret().await.as_ref()),
-        )
-        .map_err(|e| Error::JWTTokenCreationError(e))
+        encode(&header, &claims, self.secret_provider.encoding_key().await)
+            .map_err(|e| Error::JWTTokenCreationError(e))
     }
 }
 
