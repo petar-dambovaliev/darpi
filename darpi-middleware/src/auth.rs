@@ -191,7 +191,7 @@ impl JwtTokenCreator for JwtTokenCreatorImpl {
             &claims,
             &EncodingKey::from_secret(self.secret_provider.secret().await.as_ref()),
         )
-        .map_err(|_| Error::JWTTokenCreationError)
+        .map_err(|e| Error::JWTTokenCreationError(e))
     }
 }
 
@@ -229,7 +229,7 @@ pub enum Error {
     #[display(fmt = "jwt token not valid")]
     JWTTokenError,
     #[display(fmt = "jwt token creation error")]
-    JWTTokenCreationError,
+    JWTTokenCreationError(jsonwebtoken::errors::Error),
     #[display(fmt = "no auth header")]
     NoAuthHeaderError,
     #[display(fmt = "invalid auth header")]

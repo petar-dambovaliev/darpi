@@ -132,28 +132,28 @@
 //     .await
 // }
 
-use darpi::{app, handler, logger::DefaultFormat, middleware, Body, Method, Path, RequestParts};
-use std::convert::Infallible;
-
-#[middleware(Request)]
-pub(crate) async fn roundtrip(
-    #[request_parts] _rp: &RequestParts,
-    #[body] _b: &Body,
-    #[handler] msg: impl AsRef<str> + Send + Sync + 'static,
-) -> Result<String, Infallible> {
-    let res = format!("{} from roundtrip middleware", msg.as_ref());
-    Ok(res)
-}
-
-#[handler({
-    container: Container,
-    middleware: {
-        request: [roundtrip("blah")]
-    }
-})]
-pub(crate) async fn home(#[middleware::request(0)] m_str: String) -> String {
-    format!("home {}", "")
-}
+// use darpi::{app, handler, logger::DefaultFormat, middleware, Body, Method, Path, RequestParts};
+// use std::convert::Infallible;
+//
+// #[middleware(Request)]
+// pub(crate) async fn roundtrip(
+//     #[request_parts] _rp: &RequestParts,
+//     #[body] _b: &Body,
+//     #[handler] msg: impl AsRef<str> + Send + Sync + 'static,
+// ) -> Result<String, Infallible> {
+//     let res = format!("{} from roundtrip middleware", msg.as_ref());
+//     Ok(res)
+// }
+//
+// #[handler({
+//     container: Container,
+//     middleware: {
+//         request: [roundtrip("blah")]
+//     }
+// })]
+// pub(crate) async fn home(#[middleware::request(0)] m_str: String) -> String {
+//     format!("home {}", "")
+// }
 
 #[test]
 fn main() {}
