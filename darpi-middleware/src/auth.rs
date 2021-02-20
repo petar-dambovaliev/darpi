@@ -231,7 +231,7 @@ pub enum Error {
     WrongCredentialsError,
     #[display(fmt = "jwt token not valid")]
     JWTTokenError,
-    #[display(fmt = "jwt token creation error")]
+    #[display(fmt = "jwt token creation error {}", _0)]
     JWTTokenCreationError(jsonwebtoken::errors::Error),
     #[display(fmt = "no auth header")]
     NoAuthHeaderError,

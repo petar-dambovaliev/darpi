@@ -402,7 +402,6 @@ module! {
     }
 }
 
-// //todo if there is #[inject] but no container given give an error
 #[handler({
     container: Container
 })]
@@ -446,6 +445,16 @@ pub struct Name {
 })]
 pub(crate) async fn do_something(#[path] p: Name) -> String {
     format!("user {}", p.name)
+}
+
+#[handler({
+    container: Container,
+    middleware: {
+        request: [body_size_limit(64)]
+    }
+})]
+pub(crate) async fn do_something1(#[query] p: Option<Name>) -> String {
+    format!("user {:#?}", p)
 }
 
 //

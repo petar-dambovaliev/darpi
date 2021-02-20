@@ -32,7 +32,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let module_ident = quote! {args.container};
     let mut make_args = vec![];
     let mut give_args = vec![];
-    let mut n_args = 0u8;
     //let mut wants_body = false;
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
@@ -41,12 +40,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut max_middleware_index = None;
     //let mut req_len = 0;
     //let mut res_len = 0;
-
-    if n_args > 1 {
-        return Error::new_spanned(func, "One 1 path type is allowed")
-            .to_compile_error()
-            .into();
-    }
 
     //let mut module = Default::default();
     let mut dummy_t = quote! {,T};
@@ -211,6 +204,9 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     }
 
     let mut i = 0_u32;
+    let mut allowed_query = true;
+    let mut allowed_path = true;
+    let mut allowed_body = true;
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
             let h_args = match make_handler_args(tp, i, module_ident.clone(), req_len, res_len) {
@@ -218,18 +214,46 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                 Err(e) => return e,
             };
             let (arg_name, method_resolve) = match h_args {
-                HandlerArgs::Query(i, ts) => (i, ts),
+                HandlerArgs::Query(i, ts) => {
+                    if !allowed_query {
+                        return Error::new_spanned(arg, "One 1 query type is allowed")
+                            .to_compile_error()
+                            .into();
+                    }
+                    allowed_query = false;
+                    (i, ts)
+                }
                 HandlerArgs::Body(i, ts) => {
-                    //wants_body = true;
+                    if !allowed_body {
+                        return Error::new_spanned(arg, "One 1 body type is allowed")
+                            .to_compile_error()
+                            .into();
+                    }
+                    allowed_body = false;
                     (i, ts)
                 }
                 HandlerArgs::Path(i, ts) => {
-                    n_args += 1;
+                    if !allowed_path {
+                        return Error::new_spanned(arg, "One 1 body type is allowed")
+                            .to_compile_error()
+                            .into();
+                    }
+                    allowed_path = false;
                     //has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
                     (i, ts)
                 }
                 HandlerArgs::Option(i, ts) => (i, ts),
-                HandlerArgs::Module(i, ts) => (i, ts),
+                HandlerArgs::Module(i, ts) => {
+                    if !dummy_t.is_empty() {
+                        return Error::new_spanned(
+                            arg,
+                            "inject requires a container to be passed in",
+                        )
+                        .to_compile_error()
+                        .into();
+                    }
+                    (i, ts)
+                }
                 HandlerArgs::Middleware(i, ts, index, ttype) => {
                     if let Some(s) = max_middleware_index {
                         if index > s {
@@ -408,14 +432,24 @@ fn get_res_middleware_arg(
     m_args
 }
 
-//todo fix last path
-fn make_optional_query(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
-    let inner = &last.arguments;
+fn make_optional_query(
+    arg_name: &Ident,
+    format: Punctuated<Ident, token::Colon2>,
+    full: TypePath,
+) -> proc_macro2::TokenStream {
+    let inner = full
+        .path
+        .segments
+        .last()
+        .cloned()
+        .expect("No query")
+        .arguments;
+
     quote! {
-        let #arg_name: #last = match &args.request_parts.uri.query() {
+        let #arg_name = match &args.request_parts.uri.query() {
             Some(q) => {
-                let #arg_name: #last = match #inner::from_query(q) {
-                    Ok(w) => Some(w),
+                let #arg_name: #full  = match #format::from_query(q) {
+                    Ok(w) => w,
                     Err(w) => None
                 };
                 #arg_name
@@ -566,32 +600,32 @@ fn make_handler_args(
         if attr_ident.len() == 1 {
             let attr_ident = &attr_ident[0];
 
-            //todo return err if there are more than 1 query args
             if attr_ident == "query" {
+                let query_ttype: Punctuated<Ident, token::Colon2> =
+                    tp.path.segments.iter().map(|s| s.ident.clone()).collect();
+
                 if last.ident == "Option" {
                     if let PathArguments::AngleBracketed(ab) = &last.arguments {
                         if let GenericArgument::Type(t) =
                             ab.args.first().expect("no handler generic arg")
                         {
                             if let Type::Path(_) = t {
-                                let res = make_optional_query(&arg_name, last);
+                                let res = make_optional_query(&arg_name, query_ttype, tp);
                                 return Ok(HandlerArgs::Option(arg_name, res));
                             }
                         }
                     }
                 }
-                let query_ttype: Punctuated<Ident, token::Colon2> =
-                    tp.path.segments.iter().map(|s| s.ident.clone()).collect();
-                //panic!("123 {:#?}", );
+
                 let res = make_query(&arg_name, query_ttype, tp);
                 return Ok(HandlerArgs::Query(arg_name, res));
             }
-            //todo return err if there are more than 1 json args
+
             if attr_ident == "body" {
                 let res = make_json_body(&arg_name, &tp);
                 return Ok(HandlerArgs::Body(arg_name, res));
             }
-            //todo return err if there are more than 1 path args
+
             if attr_ident == "path" {
                 let res = make_path_args(&arg_name, &last);
                 return Ok(HandlerArgs::Path(arg_name, res));
