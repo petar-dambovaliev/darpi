@@ -59,13 +59,11 @@ impl From<async_graphql::Response> for Response {
 
 pub struct GraphQLBody<T>(pub T);
 
-impl<T> darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>
-    for GraphQLBody<T>
-where
-    T: darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>,
+impl darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>
+    for GraphQLBody<Request>
 {
     fn respond_err(e: QueryPayloadError) -> darpi::Response<Body> {
-        T::respond_err(e)
+        Request::respond_err(e)
     }
 }
 
