@@ -1,6 +1,6 @@
 use darpi::{
-    app, handler, job::Job, job_factory, logger::DefaultFormat, middleware, Body, Json, Method,
-    Path, Query, RequestParts, Response,
+    app, from_path, handler, job::Job, job_factory, logger::DefaultFormat, middleware, Body, Json,
+    Method, Query, RequestParts, Response,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
@@ -21,7 +21,8 @@ module! {
     }
 }
 
-#[derive(Deserialize, Serialize, Debug, Path, Query)]
+#[from_path]
+#[derive(Deserialize, Serialize, Debug, Query)]
 pub struct Name {
     name: String,
 }

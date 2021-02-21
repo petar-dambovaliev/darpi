@@ -29,6 +29,7 @@ pub(crate) fn make_path_type(input: TokenStream) -> TokenStream {
         });
 
         let tokens = quote! {
+            #struct_arg
             impl darpi::response::ErrResponder<darpi::request::PathError, darpi::Body> for #name {
                 fn respond_err(e: darpi::request::PathError) -> darpi::Response<darpi::Body> {
                     let msg = match e {

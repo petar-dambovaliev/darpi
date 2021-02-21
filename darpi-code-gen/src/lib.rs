@@ -10,8 +10,8 @@ mod request;
 use proc_macro::TokenStream;
 use syn::{parse, parse_macro_input, ExprLit, ItemStruct};
 
-#[proc_macro_derive(Path)]
-pub fn path(input: TokenStream) -> TokenStream {
+#[proc_macro_attribute]
+pub fn from_path(_: TokenStream, input: TokenStream) -> TokenStream {
     request::make_path_type(input)
 }
 
