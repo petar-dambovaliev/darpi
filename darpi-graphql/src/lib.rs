@@ -1,8 +1,9 @@
 use async_graphql::{ParseRequestError, Result};
 use async_trait::async_trait;
 use darpi::header::HeaderValue;
+use darpi::request::QueryPayloadError;
 use darpi::{
-    body::Bytes, header, hyper, request::FromRequestBody, response::ResponderError, Query,
+    body::Bytes, header, hyper, request::FromRequestBody, response::ResponderError, Body, Query,
     StatusCode,
 };
 use derive_more::Display;
@@ -57,6 +58,16 @@ impl From<async_graphql::Response> for Response {
 }
 
 pub struct GraphQLBody<T>(pub T);
+
+impl<T> darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>
+    for GraphQLBody<T>
+where
+    T: darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>,
+{
+    fn respond_err(e: QueryPayloadError) -> darpi::Response<Body> {
+        T::respond_err(e)
+    }
+}
 
 #[derive(Display)]
 pub enum GraphQLError {
