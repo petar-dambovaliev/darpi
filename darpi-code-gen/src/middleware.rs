@@ -38,7 +38,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
         handler_types,
         handler_bounds,
         handler_gen_types,
-    } = match make_args(&mut func) {
+    } = match make_args(&mut func, &first_arg) {
         Ok(a) => a,
         Err(e) => return e,
     };
@@ -216,7 +216,7 @@ struct CallArgs {
     handler_gen_types: Vec<TokenStream2>,
 }
 
-fn make_args(func: &mut ItemFn) -> Result<CallArgs, TokenStream> {
+fn make_args(func: &mut ItemFn, middleware_type: &String) -> Result<CallArgs, TokenStream> {
     let mut make = vec![];
     let mut give = vec![];
     let mut i = 0_u32;
@@ -230,7 +230,7 @@ fn make_args(func: &mut ItemFn) -> Result<CallArgs, TokenStream> {
 
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
-            let h_args = match make_handler_arg(tp, i, &module_ident) {
+            let h_args = match make_handler_arg(tp, i, &module_ident, middleware_type) {
                 Ok(k) => k,
                 Err(e) => return Err(e),
             };
@@ -305,21 +305,43 @@ enum HandlerArg {
     Permanent(proc_macro2::TokenStream, proc_macro2::TokenStream),
 }
 
-fn make_handler_arg(tp: &PatType, i: u32, module_ident: &Ident) -> Result<HandlerArg, TokenStream> {
+fn make_handler_arg(
+    tp: &PatType,
+    i: u32,
+    module_ident: &Ident,
+    middleware_type: &String,
+) -> Result<HandlerArg, TokenStream> {
     let ttype = &tp.ty;
 
     let arg_name = format_ident!("arg_{:x}", i);
 
     let attr = tp.attrs.first().unwrap();
     let attr_ident = attr.path.get_ident().unwrap();
+    let is_request = middleware_type == "Request";
 
     if let Type::Reference(rt) = *ttype.clone() {
         if let Type::Path(_) = *rt.elem.clone() {
             if attr_ident == "request_parts" {
+                if !is_request {
+                    return Err(Error::new_spanned(
+                        attr_ident,
+                        "request_parts only allowed for Request middleware",
+                    )
+                    .to_compile_error()
+                    .into());
+                }
                 let res = quote! {let #arg_name = p;};
                 return Ok(HandlerArg::Permanent(arg_name.to_token_stream(), res));
             }
             if attr_ident == "body" {
+                if !is_request {
+                    return Err(Error::new_spanned(
+                        attr_ident,
+                        "body only allowed for Request middleware",
+                    )
+                    .to_compile_error()
+                    .into());
+                }
                 let res = quote! {let mut #arg_name = b;};
                 let tt = quote! {&mut #arg_name};
                 return Ok(HandlerArg::Permanent(tt, res));
