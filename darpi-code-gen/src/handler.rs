@@ -437,14 +437,6 @@ fn make_optional_query(
     format: Punctuated<Ident, token::Colon2>,
     full: TypePath,
 ) -> proc_macro2::TokenStream {
-    let inner = full
-        .path
-        .segments
-        .last()
-        .cloned()
-        .expect("No query")
-        .arguments;
-
     quote! {
         let #arg_name = match &args.request_parts.uri.query() {
             Some(q) => {
@@ -468,23 +460,17 @@ fn make_query(
         quote! {respond_to_err},
         quote! {darpi::request::QueryPayloadError},
     );
-    let inner = full
-        .path
-        .segments
-        .last()
-        .cloned()
-        .expect("No query")
-        .arguments;
+    let inner = full.path.segments.last().cloned().expect("No query");
     quote! {
         #respond_err
         let #arg_name = match args.request_parts.uri.query() {
             Some(q) => q,
-            None => return Ok(respond_to_err::#inner(darpi::request::QueryPayloadError::NotExist))
+            None => return Ok(respond_to_err::<#inner>(darpi::request::QueryPayloadError::NotExist))
         };
 
         let #arg_name: #full = match #format::from_query(#arg_name) {
             Ok(q) => q,
-            Err(e) => return Ok(respond_to_err::#inner(e))
+            Err(e) => return Ok(respond_to_err::<#inner>(e))
         };
     }
 }

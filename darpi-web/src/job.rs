@@ -25,6 +25,6 @@ where
 
 pub enum Job {
     Future(Pin<Box<dyn Future<Output = ()> + Send>>),
-    CpuBound(fn()),
-    IOBlocking(fn()),
+    CpuBound(Box<dyn Fn() + Send>),
+    IOBlocking(Box<dyn Fn() + Send>),
 }

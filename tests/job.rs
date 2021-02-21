@@ -1,11 +1,13 @@
 use darpi::{
-    app, handler, job::Job, job_factory, logger::DefaultFormat, Body, Method, Path, Query, Response,
+    app, handler, job::Job, job_factory, logger::DefaultFormat, middleware, Body, Json, Method,
+    Path, Query, RequestParts, Response,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
 use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use shaku::module;
+use std::convert::Infallible;
 
 fn make_container() -> Container {
     let module = Container::builder().build();
@@ -30,27 +32,34 @@ async fn first_async_job() -> Job {
 }
 
 #[job_factory(Response)]
-async fn first_sync_job(#[response] _r: &Response<Body>) -> Job {
-    Job::CpuBound(|| println!("first_sync_job in the background"))
+async fn first_sync_job(#[response] r: &Response<Body>) -> Job {
+    let status_code = r.status();
+    Job::IOBlocking(Box::new(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        println!(
+            "first_sync_job in the background for a request with status {}",
+            status_code
+        );
+    }))
 }
 
 #[job_factory(Response)]
 async fn first_sync_job1() -> Job {
-    Job::CpuBound(|| {
+    Job::CpuBound(Box::new(|| {
         let mut r = 0;
         for _ in 0..10000000 {
             r += 1;
         }
         println!("first_sync_job1 finished in the background. {}", r)
-    })
+    }))
 }
 
 #[job_factory(Response)]
 async fn first_sync_io_job() -> Job {
-    Job::IOBlocking(|| {
+    Job::IOBlocking(Box::new(|| {
         std::thread::sleep(std::time::Duration::from_secs(2));
         println!("sync io finished in the background");
-    })
+    }))
 }
 
 #[handler({
@@ -61,6 +70,44 @@ async fn first_sync_io_job() -> Job {
 })]
 async fn hello_world() -> String {
     format!("{}", 123)
+}
+
+#[middleware(Request)]
+pub(crate) async fn roundtrip(
+    #[request_parts] _rp: &RequestParts,
+    #[body] _b: &Body,
+    #[handler] msg: impl AsRef<str> + Send + Sync + 'static,
+) -> Result<String, Infallible> {
+    let res = format!("{} from roundtrip middleware", msg.as_ref());
+    Ok(res)
+}
+
+#[handler({
+    middleware: {
+        request: [roundtrip("blah")]
+    }
+})]
+async fn do_something123(
+    // the request query is deserialized into Name
+    // if deseriliazation fails, it will result in an error response
+    // to make it optional wrap it in an Option<Name>
+    #[query] query: Name,
+    // the request path is deserialized into Name
+    #[path] path: Name,
+    // the request body is deserialized into the struct Name
+    // it is important to mention that the wrapper around Name
+    // should implement darpi::request::FromRequestBody
+    // Common formats like Json, Xml and Yaml are supported out
+    // of the box but users can implement their own
+    #[body] payload: Json<Name>,
+    // we can access the T from Ok(T) in the middleware result
+    #[middleware::request(0)] m_str: String, // returning a String works because darpi has implemented
+                                             // the Responder trait for common types
+) -> String {
+    format!(
+        "query: {} path: {} body: {} middleware: {}",
+        query.name, path.name, payload.name, m_str
+    )
 }
 
 //RUST_LOG=darpi=info cargo test --test job -- --nocapture

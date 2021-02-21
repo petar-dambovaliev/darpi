@@ -15,8 +15,8 @@ pub struct Args<'a, C> {
     pub body: Body,
     pub route_args: HashMap<&'a str, &'a str>,
     pub async_job_sender: UnboundedSender<BoxFuture<'static, ()>>,
-    pub sync_cpu_job_sender: Sender<fn()>,
-    pub sync_io_job_sender: Sender<fn()>,
+    pub sync_cpu_job_sender: Sender<Box<dyn Fn() -> () + Send>>,
+    pub sync_io_job_sender: Sender<Box<dyn Fn() -> () + Send>>,
 }
 
 #[async_trait]

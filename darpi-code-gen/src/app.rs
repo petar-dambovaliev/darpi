@@ -338,13 +338,13 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                     .build_global().unwrap();
 
                 let (send_sync, mut recv_sync): (
-                    std::sync::mpsc::Sender<fn()>,
-                    std::sync::mpsc::Receiver<fn()>,
+                    std::sync::mpsc::Sender<Box<dyn Fn() + Send>>,
+                    std::sync::mpsc::Receiver<Box<dyn Fn() + Send>>,
                 ) = std::sync::mpsc::channel();
 
                 let (send_sync_io, mut recv_sync_io): (
-                    std::sync::mpsc::Sender<fn()>,
-                    std::sync::mpsc::Receiver<fn()>,
+                    std::sync::mpsc::Sender<Box<dyn Fn() + Send>>,
+                    std::sync::mpsc::Receiver<Box<dyn Fn() + Send>>,
                 ) = std::sync::mpsc::channel();
 
                 let sync_job_executor = std::thread::spawn(move || {

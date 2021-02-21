@@ -424,9 +424,14 @@ async fn index_post(
 
 #[handler({
     container: Container,
-        middleware: {
-            request: [body_size_limit(90)]
-        }
+    middleware: {
+        request: [],
+        response: []
+    },
+    jobs: {
+        request: [],
+        response: []
+    }
 })]
 pub(crate) async fn home() -> String {
     format!("home")
