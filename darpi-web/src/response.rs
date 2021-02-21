@@ -98,6 +98,8 @@ pub trait ResponderError: fmt::Display {
     }
 }
 
+impl ResponderError for tokio::task::JoinError {}
+
 struct ByteWriter<'a>(pub &'a mut BytesMut);
 
 impl<'a> Write for ByteWriter<'a> {
