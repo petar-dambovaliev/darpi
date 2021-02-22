@@ -57,10 +57,31 @@ impl From<IOBlockingJob> for Job {
 
 pub struct FutureJob(Pin<Box<dyn Future<Output = ()> + Send>>);
 pub struct CpuJob(Box<dyn Fn() + Send>);
-pub struct IOBlockingJob(Box<dyn Fn() + Send>);
+pub struct IOBlockingJob(Box<dyn FnOnce() + Send>);
+
+use std::sync::mpsc::{SendError, Sender};
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
+
+pub async fn oneshoot_blocking<T, F>(
+    tx: Sender<IOBlockingJob>,
+    job: F,
+) -> Result<Receiver<T>, SendError<IOBlockingJob>>
+where
+    T: Send + 'static,
+    F: 'static + Sync + Send + FnOnce() -> T,
+{
+    let (otx, recv) = oneshot::channel();
+    let block = IOBlockingJob(Box::new(move || {
+        let _ = otx.send(job());
+    }));
+
+    tx.send(block)?;
+    Ok(recv)
+}
 
 impl IOBlockingJob {
-    pub fn into_inner(self) -> Box<dyn Fn() + Send> {
+    pub fn into_inner(self) -> Box<dyn FnOnce() + Send> {
         self.0
     }
 }
