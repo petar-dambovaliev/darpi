@@ -214,6 +214,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                 Err(e) => return e,
             };
             let (arg_name, method_resolve) = match h_args {
+                HandlerArgs::JobChan(i, ts) => (i, ts),
                 HandlerArgs::Query(i, ts) => {
                     if !allowed_query {
                         return Error::new_spanned(arg, "One 1 query type is allowed")
@@ -337,7 +338,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             }
         }
     };
-    //panic!("{}", output.to_string());
+    //cpu_job_senderpanic!("{}", output.to_string());
     output.into()
 }
 
@@ -544,6 +545,7 @@ enum HandlerArgs {
     Option(Ident, proc_macro2::TokenStream),
     Module(Ident, proc_macro2::TokenStream),
     Middleware(Ident, proc_macro2::TokenStream, u64, Type),
+    JobChan(Ident, proc_macro2::TokenStream),
 }
 
 fn make_handler_args(
@@ -566,6 +568,30 @@ fn make_handler_args(
 
     let attr = tp.attrs.first().expect("no handler attr");
 
+    if let Type::Reference(tp) = *ttype.clone() {
+        if let Type::Path(_) = *tp.elem.clone() {
+            let attr_ident: Vec<Ident> =
+                attr.path.segments.iter().map(|s| s.ident.clone()).collect();
+
+            if attr_ident.is_empty() {
+                return Err(
+                    Error::new(Span::call_site(), format!("expected an attribute"))
+                        .to_compile_error()
+                        .into(),
+                );
+            }
+
+            if attr_ident.len() == 1 {
+                let attr_ident = &attr_ident[0];
+
+                if attr_ident == "request_parts" {
+                    let res = quote! {let #arg_name = args.request_parts;};
+                    return Ok(HandlerArgs::JobChan(arg_name, res));
+                }
+            }
+        }
+    }
+
     if let Type::Path(tp) = *ttype.clone() {
         let last = tp
             .path
@@ -585,6 +611,11 @@ fn make_handler_args(
 
         if attr_ident.len() == 1 {
             let attr_ident = &attr_ident[0];
+
+            if attr_ident == "request_parts" {
+                let res = quote! {let #arg_name = args.request_parts;};
+                return Ok(HandlerArgs::JobChan(arg_name, res));
+            }
 
             if attr_ident == "query" {
                 let query_ttype: Punctuated<Ident, token::Colon2> =
@@ -622,6 +653,24 @@ fn make_handler_args(
                     let #arg_name: #ttype = #module_ident.resolve();
                 };
                 return Ok(HandlerArgs::Module(arg_name, method_resolve));
+            }
+            if attr_ident == "cpu" {
+                let method_resolve = quote! {
+                    let #arg_name = args.cpu_job_sender.clone();
+                };
+                return Ok(HandlerArgs::JobChan(arg_name, method_resolve));
+            }
+            if attr_ident == "blocking" {
+                let method_resolve = quote! {
+                    let #arg_name = args.sync_io_job_sender.clone();
+                };
+                return Ok(HandlerArgs::JobChan(arg_name, method_resolve));
+            }
+            if attr_ident == "future" {
+                let method_resolve = quote! {
+                    let #arg_name = args.async_job_sender.clone();
+                };
+                return Ok(HandlerArgs::JobChan(arg_name, method_resolve));
             }
         }
 

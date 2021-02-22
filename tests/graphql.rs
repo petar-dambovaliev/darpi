@@ -1,7 +1,9 @@
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Enum, Interface, Object};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use darpi::{app, handler, logger::DefaultFormat, middleware, Body, Method, Path, RequestParts};
+use darpi::{
+    app, from_path, handler, logger::DefaultFormat, middleware, Body, Method, RequestParts,
+};
 use darpi_graphql::{GraphQLBody, Request, Response};
 use darpi_middleware::{body_size_limit, log_request, log_response};
 use env_logger;
@@ -437,7 +439,8 @@ pub(crate) async fn home() -> String {
     format!("home")
 }
 
-#[derive(Deserialize, Serialize, Debug, Path)]
+#[from_path]
+#[derive(Deserialize, Serialize, Debug)]
 pub struct Name {
     name: String,
 }

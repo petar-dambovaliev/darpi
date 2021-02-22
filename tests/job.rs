@@ -8,6 +8,8 @@ use env_logger;
 use serde::{Deserialize, Serialize};
 use shaku::module;
 use std::convert::Infallible;
+use std::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
 fn make_container() -> Container {
     let module = Container::builder().build();
@@ -72,14 +74,29 @@ async fn first_sync_io_job() -> IOBlockingJob {
     .into()
 }
 
-#[handler({
-    jobs: {
-        request: [],
-        response: [first_sync_job1]
+#[handler]
+async fn hello_world(
+    #[request_parts] rp: &RequestParts,
+    #[cpu] cpu_job_queue: Sender<CpuJob>,
+    #[future] _fut_job_queue: UnboundedSender<FutureJob>,
+    #[blocking] _block_job_queue: Sender<IOBlockingJob>,
+) -> &'static str {
+    if rp.headers.get("destroy-cpu-header").is_some() {
+        let cpu_job: CpuJob = {
+            || {
+                let mut r = 0;
+                for _ in 0..10000000 {
+                    r += 1;
+                }
+                println!("first_sync_job1 finished in the background. {}", r)
+            }
+        }
+        .into();
+
+        cpu_job_queue.send(cpu_job).expect("ohh noes!");
     }
-})]
-async fn hello_world() -> String {
-    format!("{}", 123)
+
+    "hello world"
 }
 
 #[middleware(Request)]
