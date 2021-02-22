@@ -69,7 +69,7 @@ pub async fn oneshoot_blocking<T, F>(
 ) -> Result<Receiver<T>, SendError<IOBlockingJob>>
 where
     T: Send + 'static,
-    F: 'static + Sync + Send + FnOnce() -> T,
+    F: 'static + Send + FnOnce() -> T,
 {
     let (otx, recv) = oneshot::channel();
     let block = IOBlockingJob(Box::new(move || {
