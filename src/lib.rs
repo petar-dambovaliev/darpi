@@ -4,9 +4,10 @@ pub use darpi_code_gen::{
     app, from_path, handler, job_factory, middleware, req_formatter, resp_formatter, Query,
 };
 pub use darpi_web::{
-    handler::Args, handler::Handler, job, job::RequestJobFactory, job::ResponseJobFactory, logger,
-    logger::ReqFormatter, logger::RespFormatter, middleware::RequestMiddleware,
-    middleware::ResponseMiddleware, request, response, xml::Xml, yaml::Yaml, Json,
+    handler::Args, handler::Handler, job, job::oneshoot_blocking, job::RequestJobFactory,
+    job::ResponseJobFactory, logger, logger::ReqFormatter, logger::RespFormatter,
+    middleware::RequestMiddleware, middleware::ResponseMiddleware, request, response, xml::Xml,
+    yaml::Yaml, Json,
 };
 
 pub use async_trait::async_trait;
