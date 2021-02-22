@@ -4,7 +4,10 @@ use futures::Future;
 use futures_util::FutureExt;
 use http::request::Parts as RequestParts;
 use std::pin::Pin;
+use std::sync::mpsc::{SendError, Sender};
 use std::sync::Arc;
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 
 #[async_trait]
 pub trait RequestJobFactory<C>
@@ -56,28 +59,50 @@ impl From<IOBlockingJob> for Job {
 }
 
 pub struct FutureJob(Pin<Box<dyn Future<Output = ()> + Send>>);
-pub struct CpuJob(Box<dyn Fn() + Send>);
+pub struct CpuJob(Box<dyn FnOnce() + Send>);
 pub struct IOBlockingJob(Box<dyn FnOnce() + Send>);
 
-use std::sync::mpsc::{SendError, Sender};
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::Receiver;
+#[async_trait]
+pub trait SenderExt<T, J> {
+    async fn oneshoot<F>(self, job: F) -> Result<Receiver<T>, SendError<J>>
+    where
+        J: 'static + Into<Job>,
+        T: Send + 'static,
+        F: 'static + Send + FnOnce() -> T;
+}
 
-pub async fn oneshoot_blocking<T, F>(
-    tx: Sender<IOBlockingJob>,
-    job: F,
-) -> Result<Receiver<T>, SendError<IOBlockingJob>>
-where
-    T: Send + 'static,
-    F: 'static + Send + FnOnce() -> T,
-{
-    let (otx, recv) = oneshot::channel();
-    let block = IOBlockingJob(Box::new(move || {
-        let _ = otx.send(job());
-    }));
+#[async_trait]
+impl<T> SenderExt<T, IOBlockingJob> for Sender<IOBlockingJob> {
+    async fn oneshoot<F>(self, job: F) -> Result<Receiver<T>, SendError<IOBlockingJob>>
+    where
+        T: Send + 'static,
+        F: 'static + Send + FnOnce() -> T,
+    {
+        let (otx, recv) = oneshot::channel();
+        let block = IOBlockingJob(Box::new(move || {
+            let _ = otx.send(job());
+        }));
 
-    tx.send(block)?;
-    Ok(recv)
+        self.send(block)?;
+        Ok(recv)
+    }
+}
+
+#[async_trait]
+impl<T> SenderExt<T, CpuJob> for Sender<CpuJob> {
+    async fn oneshoot<F>(self, job: F) -> Result<Receiver<T>, SendError<CpuJob>>
+    where
+        T: Send + 'static,
+        F: 'static + Send + FnOnce() -> T,
+    {
+        let (otx, recv) = oneshot::channel();
+        let block = CpuJob(Box::new(move || {
+            let _ = otx.send(job());
+        }));
+
+        self.send(block)?;
+        Ok(recv)
+    }
 }
 
 impl IOBlockingJob {
@@ -87,7 +112,7 @@ impl IOBlockingJob {
 }
 
 impl CpuJob {
-    pub fn into_inner(self) -> Box<dyn Fn() + Send> {
+    pub fn into_inner(self) -> Box<dyn FnOnce() + Send> {
         self.0
     }
 }

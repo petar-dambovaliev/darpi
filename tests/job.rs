@@ -1,4 +1,4 @@
-use darpi::job::{CpuJob, FutureJob, IOBlockingJob, Job, JobExt};
+use darpi::job::{CpuJob, FutureJob, IOBlockingJob, Job, JobExt, SenderExt};
 use darpi::{
     app, from_path, handler, job_factory, logger::DefaultFormat, middleware, Body, Json, Method,
     Query, RequestParts, Response,
@@ -97,6 +97,22 @@ async fn hello_world(
     }
 
     "hello world"
+}
+
+#[handler]
+async fn hello_world1(#[blocking] job_queue: Sender<IOBlockingJob>) -> String {
+    let secs = job_queue
+        .oneshoot(move || {
+            let secs = 2;
+            std::thread::sleep(std::time::Duration::from_secs(secs));
+            secs
+        })
+        .await
+        .expect("ohh noes")
+        .await
+        .expect("ohh noes");
+
+    format!("waited {} seconds to say hello world", secs)
 }
 
 #[middleware(Request)]
