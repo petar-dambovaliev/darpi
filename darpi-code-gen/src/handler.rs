@@ -145,9 +145,9 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     };
 
                     jobs_req.push(quote! {
-                        match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await {
+                        match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await.into() {
                             darpi::job::Job::CpuBound(function) => {
-                                args.sync_cpu_job_sender.send(function).unwrap_or(());
+                                args.cpu_job_sender.send(function).unwrap_or(());
                             }
                             darpi::job::Job::IOBlocking(function) => {
                                 args.sync_io_job_sender.send(function).unwrap_or(());
@@ -186,9 +186,9 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     };
 
                     jobs_res.push(quote! {
-                        match #name::call(&rb, args.container.clone(), #m_args).await {
+                        match #name::call(&rb, args.container.clone(), #m_args).await.into() {
                             darpi::job::Job::CpuBound(function) => {
-                                args.sync_cpu_job_sender.send(function).unwrap_or(());
+                                args.cpu_job_sender.send(function).unwrap_or(());
                             }
                             darpi::job::Job::IOBlocking(function) => {
                                 args.sync_io_job_sender.send(function).unwrap_or(());

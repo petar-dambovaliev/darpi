@@ -1,10 +1,10 @@
+use darpi::job::{CpuJob, FutureJob, IOBlockingJob, Job, JobExt};
 use darpi::{
-    app, from_path, handler, job::Job, job_factory, logger::DefaultFormat, middleware, Body, Json,
-    Method, Query, RequestParts, Response,
+    app, from_path, handler, job_factory, logger::DefaultFormat, middleware, Body, Json, Method,
+    Query, RequestParts, Response,
 };
 use darpi_middleware::{log_request, log_response};
 use env_logger;
-use futures_util::FutureExt;
 use serde::{Deserialize, Serialize};
 use shaku::module;
 use std::convert::Infallible;
@@ -28,39 +28,48 @@ pub struct Name {
 }
 
 #[job_factory(Request)]
-async fn first_async_job() -> Job {
-    Job::Future(async { println!("first job in the background.") }.boxed())
+async fn first_async_job() -> FutureJob {
+    async { println!("first job in the background.") }.into()
 }
 
 #[job_factory(Response)]
 async fn first_sync_job(#[response] r: &Response<Body>) -> Job {
     let status_code = r.status();
-    Job::IOBlocking(Box::new(move || {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        println!(
-            "first_sync_job in the background for a request with status {}",
-            status_code
-        );
-    }))
-}
-
-#[job_factory(Response)]
-async fn first_sync_job1() -> Job {
-    Job::CpuBound(Box::new(|| {
-        let mut r = 0;
-        for _ in 0..10000000 {
-            r += 1;
+    {
+        move || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            println!(
+                "first_sync_job in the background for a request with status {}",
+                status_code
+            );
         }
-        println!("first_sync_job1 finished in the background. {}", r)
-    }))
+    }
+    .io_blocking()
 }
 
 #[job_factory(Response)]
-async fn first_sync_io_job() -> Job {
-    Job::IOBlocking(Box::new(|| {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        println!("sync io finished in the background");
-    }))
+async fn first_sync_job1() -> CpuJob {
+    {
+        || {
+            let mut r = 0;
+            for _ in 0..10000000 {
+                r += 1;
+            }
+            println!("first_sync_job1 finished in the background. {}", r)
+        }
+    }
+    .into()
+}
+
+#[job_factory(Response)]
+async fn first_sync_io_job() -> IOBlockingJob {
+    {
+        || {
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            println!("sync io finished in the background");
+        }
+    }
+    .into()
 }
 
 #[handler({

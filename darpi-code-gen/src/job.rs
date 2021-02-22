@@ -3,7 +3,10 @@ use proc_macro::TokenStream;
 use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use quote::{ToTokens, TokenStreamExt};
-use syn::{parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, Type};
+use syn::{
+    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, ReturnType,
+    Type,
+};
 
 pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(input as ItemFn);
@@ -88,6 +91,11 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
         )
     };
 
+    let return_type = match func.sig.output.clone() {
+        ReturnType::Type(_, rt) => rt.to_token_stream(),
+        _ => Default::default(),
+    };
+
     let tokens = match first_arg.as_str() {
         "Request" => {
             quote! {
@@ -105,13 +113,14 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     #bounds
                 {
                     type HandlerArgs = #handler_t;
+                    type Return =  #return_type;
 
                     async fn call(
                         p: &darpi::RequestParts,
                         module: std::sync::Arc<C>,
                         b: &darpi::Body,
                         ha: Self::HandlerArgs,
-                    ) -> darpi::job::Job {
+                    ) -> Self::Return {
                         #(#make )*
                         Self::#name#func_gen_call(#(#give ,)*).await
                     }
@@ -134,12 +143,13 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     #bounds
                 {
                     type HandlerArgs = #handler_t;
+                    type Return =  #return_type;
 
                     async fn call(
                         r: &darpi::Response<darpi::Body>,
                         module: std::sync::Arc<C>,
                         ha: Self::HandlerArgs,
-                    ) -> darpi::job::Job {
+                    ) -> Self::Return {
                         #(#make )*
                         Self::#name#func_gen_call(#(#give ,)*).await
                     }

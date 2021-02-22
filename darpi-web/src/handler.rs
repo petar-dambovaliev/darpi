@@ -1,6 +1,6 @@
+use crate::job;
 use crate::{Body, Response};
 use async_trait::async_trait;
-use futures::future::BoxFuture;
 use http::request::Parts as RequestParts;
 use std::collections::HashMap;
 use std::convert::Infallible;
@@ -14,9 +14,9 @@ pub struct Args<'a, C> {
     pub container: Arc<C>,
     pub body: Body,
     pub route_args: HashMap<&'a str, &'a str>,
-    pub async_job_sender: UnboundedSender<BoxFuture<'static, ()>>,
-    pub sync_cpu_job_sender: Sender<Box<dyn Fn() -> () + Send>>,
-    pub sync_io_job_sender: Sender<Box<dyn Fn() -> () + Send>>,
+    pub async_job_sender: UnboundedSender<job::FutureJob>,
+    pub cpu_job_sender: Sender<job::CpuJob>,
+    pub sync_io_job_sender: Sender<job::IOBlockingJob>,
 }
 
 #[async_trait]
