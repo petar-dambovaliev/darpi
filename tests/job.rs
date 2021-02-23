@@ -102,7 +102,7 @@ async fn hello_world(
 #[handler]
 async fn hello_world1(#[blocking] job_queue: Sender<IOBlockingJob>) -> String {
     let secs = job_queue
-        .oneshoot(move || {
+        .oneshot(move || {
             let secs = 2;
             std::thread::sleep(std::time::Duration::from_secs(secs));
             secs

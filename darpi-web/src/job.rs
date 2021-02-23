@@ -64,7 +64,7 @@ pub struct IOBlockingJob(Box<dyn FnOnce() + Send>);
 
 #[async_trait]
 pub trait SenderExt<T, J> {
-    async fn oneshoot<F>(self, job: F) -> Result<Receiver<T>, SendError<J>>
+    async fn oneshot<F>(self, job: F) -> Result<Receiver<T>, SendError<J>>
     where
         J: 'static + Into<Job>,
         T: Send + 'static,
@@ -73,7 +73,7 @@ pub trait SenderExt<T, J> {
 
 #[async_trait]
 impl<T> SenderExt<T, IOBlockingJob> for Sender<IOBlockingJob> {
-    async fn oneshoot<F>(self, job: F) -> Result<Receiver<T>, SendError<IOBlockingJob>>
+    async fn oneshot<F>(self, job: F) -> Result<Receiver<T>, SendError<IOBlockingJob>>
     where
         T: Send + 'static,
         F: 'static + Send + FnOnce() -> T,
@@ -90,7 +90,7 @@ impl<T> SenderExt<T, IOBlockingJob> for Sender<IOBlockingJob> {
 
 #[async_trait]
 impl<T> SenderExt<T, CpuJob> for Sender<CpuJob> {
-    async fn oneshoot<F>(self, job: F) -> Result<Receiver<T>, SendError<CpuJob>>
+    async fn oneshot<F>(self, job: F) -> Result<Receiver<T>, SendError<CpuJob>>
     where
         T: Send + 'static,
         F: 'static + Send + FnOnce() -> T,
