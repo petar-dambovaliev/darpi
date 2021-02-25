@@ -6,16 +6,14 @@ use http::request::Parts as RequestParts;
 use std::pin::Pin;
 use std::sync::mpsc::{SendError, Sender};
 use std::sync::Arc;
-use tokio::sync::oneshot;
-use tokio::sync::oneshot::Receiver;
 
 #[async_trait]
-pub trait RequestJobFactory<C>
+pub trait RequestJobFactory<C, T = ()>
 where
     C: 'static + Sync + Send,
 {
     type HandlerArgs;
-    type Return: Into<Job>;
+    type Return: Into<Job<T>>;
 
     async fn call(
         p: &RequestParts,
@@ -26,158 +24,92 @@ where
 }
 
 #[async_trait]
-pub trait ResponseJobFactory<C>
+pub trait ResponseJobFactory<C, T = ()>
 where
     C: 'static + Sync + Send,
 {
     type HandlerArgs;
-    type Return: Into<Job>;
+    type Return: Into<Job<T>>;
 
     async fn call(r: &Response<Body>, module: Arc<C>, ha: Self::HandlerArgs) -> Self::Return;
 }
 
-pub enum Job {
-    Future(FutureJob),
-    CpuBound(CpuJob),
-    IOBlocking(IOBlockingJob),
+pub enum Job<T = ()> {
+    Future(FutureJob<T>),
+    CpuBound(CpuJob<T>),
+    IOBlocking(IOBlockingJob<T>),
 }
 
-impl From<FutureJob> for Job {
-    fn from(fut: FutureJob) -> Self {
+impl<T> From<FutureJob<T>> for Job<T> {
+    fn from(fut: FutureJob<T>) -> Self {
         Self::Future(fut)
     }
 }
-impl From<CpuJob> for Job {
-    fn from(job: CpuJob) -> Self {
+impl<T> From<CpuJob<T>> for Job<T> {
+    fn from(job: CpuJob<T>) -> Self {
         Self::CpuBound(job)
     }
 }
-impl From<IOBlockingJob> for Job {
-    fn from(job: IOBlockingJob) -> Self {
+impl<T> From<IOBlockingJob<T>> for Job<T> {
+    fn from(job: IOBlockingJob<T>) -> Self {
         Self::IOBlocking(job)
     }
 }
 
-pub struct FutureJob(Pin<Box<dyn Future<Output = ()> + Send>>);
-pub struct CpuJob(Box<dyn FnOnce() + Send>);
-pub struct IOBlockingJob(Box<dyn FnOnce() + Send>);
+pub struct FutureJob<T = ()>(Pin<Box<dyn Future<Output = T> + Send>>);
+pub struct CpuJob<T = ()>(Box<dyn FnOnce() -> T + Send>);
+pub struct IOBlockingJob<T = ()>(Box<dyn FnOnce() -> T + Send>);
 
-#[async_trait]
-pub trait SenderExt<T, J> {
-    async fn oneshot<F>(self, job: F) -> Result<Receiver<T>, SendError<J>>
-    where
-        J: 'static + Into<Job>,
-        T: Send + 'static,
-        F: 'static + Send + FnOnce() -> T;
-}
-
-#[async_trait]
-impl<T> SenderExt<T, IOBlockingJob> for Sender<IOBlockingJob> {
-    async fn oneshot<F>(self, job: F) -> Result<Receiver<T>, SendError<IOBlockingJob>>
-    where
-        T: Send + 'static,
-        F: 'static + Send + FnOnce() -> T,
-    {
-        let (otx, recv) = oneshot::channel();
-        let block = IOBlockingJob(Box::new(move || {
-            let _ = otx.send(job());
-        }));
-
-        self.send(block)?;
-        Ok(recv)
-    }
-}
-
-#[async_trait]
-impl<T> SenderExt<T, CpuJob> for Sender<CpuJob> {
-    async fn oneshot<F>(self, job: F) -> Result<Receiver<T>, SendError<CpuJob>>
-    where
-        T: Send + 'static,
-        F: 'static + Send + FnOnce() -> T,
-    {
-        let (otx, recv) = oneshot::channel();
-        let block = CpuJob(Box::new(move || {
-            let _ = otx.send(job());
-        }));
-
-        self.send(block)?;
-        Ok(recv)
-    }
-}
-
-impl IOBlockingJob {
-    pub fn into_inner(self) -> Box<dyn FnOnce() + Send> {
+impl<T> IOBlockingJob<T> {
+    pub fn into_inner(self) -> Box<dyn FnOnce() -> T + Send> {
         self.0
     }
 }
 
-impl CpuJob {
-    pub fn into_inner(self) -> Box<dyn FnOnce() + Send> {
+impl<T> CpuJob<T> {
+    pub fn into_inner(self) -> Box<dyn FnOnce() -> T + Send> {
         self.0
     }
 }
 
-impl FutureJob {
-    pub fn into_inner(self) -> Pin<Box<dyn Future<Output = ()> + Send>> {
+impl<T> FutureJob<T> {
+    pub fn into_inner(self) -> Pin<Box<dyn Future<Output = T> + Send>> {
         self.0
     }
 }
 
-impl<T> JobExt for T {}
-
-pub trait JobExt {
-    fn cpu_bound(self) -> Job
-    where
-        Self: Sized + Fn() + Send + 'static,
-    {
-        Job::CpuBound(Box::new(self).into())
-    }
-    fn io_blocking(self) -> Job
-    where
-        Self: Sized + Fn() + Send + 'static,
-    {
-        Job::IOBlocking(Box::new(self).into())
-    }
-    fn future(self) -> Job
-    where
-        Self: Sized + Future<Output = ()> + Send + 'static,
-    {
-        Job::Future(self.boxed().into())
-    }
-}
-
-impl<T> From<T> for IOBlockingJob
+impl<F, T> From<F> for IOBlockingJob<T>
 where
-    T: Fn() + Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
 {
-    fn from(func: T) -> Self {
+    fn from(func: F) -> Self {
         Self(Box::new(func))
     }
 }
 
-impl<T> From<T> for CpuJob
+impl<F, T> From<F> for CpuJob<T>
 where
-    T: Fn() + Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
 {
-    fn from(func: T) -> Self {
+    fn from(func: F) -> Self {
         Self(Box::new(func))
     }
 }
 
-impl<T> From<T> for FutureJob
+impl<F, T> From<F> for FutureJob<T>
 where
-    T: Future<Output = ()> + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
 {
-    fn from(fut: T) -> Self {
+    fn from(fut: F) -> Self {
         Self(fut.boxed())
     }
 }
 
-impl<T> From<T> for Job
+impl<F, T> From<F> for Job<T>
 where
-    T: Future<Output = ()> + Send + 'static,
+    F: Future<Output = T> + Send + 'static,
 {
-    fn from(fut: T) -> Self {
+    fn from(fut: F) -> Self {
         Self::Future(fut.into())
     }
 }

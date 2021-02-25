@@ -224,14 +224,23 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 jobs_req.push(quote! {
                     match #name::call(&parts, inner_module.clone(), &body, #m_args).await.into() {
                         darpi::job::Job::CpuBound(function) => {
-                            inner_send_cpu_job.send(function).unwrap_or(());
-                        }
-                        darpi::job::Job::IOBlocking(function) => {
-                            inner_send_sync_io.send(function).unwrap_or(());
-                        }
-                        darpi::job::Job::Future(fut) => {
-                            inner_send.send(fut).unwrap_or(());
-                        }
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue CpuBound job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::IOBlocking(function) => {
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue IOBlocking job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::Future(fut) => {
+                                let res = darpi::spawn(fut).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue Future job err: {}", e);
+                                }
+                            }
                     };
                 });
             });
@@ -265,14 +274,23 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 jobs_res.push(quote! {
                     match #name::call(&rb, inner_module.clone(), #m_args).await.into() {
                         darpi::job::Job::CpuBound(function) => {
-                            inner_send_cpu_job.send(function).unwrap_or(());
-                        }
-                        darpi::job::Job::IOBlocking(function) => {
-                            inner_send_sync_io.send(function).unwrap_or(());
-                        }
-                        darpi::job::Job::Future(fut) => {
-                            inner_send.send(fut).unwrap_or(());
-                        }
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue CpuBound job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::IOBlocking(function) => {
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue IOBlocking job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::Future(fut) => {
+                                let res = darpi::spawn(fut).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue Future job err: {}", e);
+                                }
+                            }
                     };
                 });
             });
@@ -337,55 +355,10 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                     })
                     .build_global().unwrap();
 
-                let (send_cpu_job, mut recv_cpu_job): (
-                    std::sync::mpsc::Sender<darpi::job::CpuJob>,
-                    std::sync::mpsc::Receiver<darpi::job::CpuJob>,
-                ) = std::sync::mpsc::channel();
-                let sync_job_executor = std::thread::spawn(move || loop {
-                    match recv_cpu_job.recv() {
-                        Ok(k) => {
-                            darpi::rayon::spawn(k.into_inner());
-                        }
-                        Err(_) => {
-                            return;
-                        }
-                    };
-                });
-
-                let (send_sync_io, mut recv_sync_io): (
-                    std::sync::mpsc::Sender<darpi::job::IOBlockingJob>,
-                    std::sync::mpsc::Receiver<darpi::job::IOBlockingJob>,
-                ) = std::sync::mpsc::channel();
-
-                let current_runtime = darpi::tokio::runtime::Handle::current();
-                let sync_io_job_executor = std::thread::spawn(move || loop {
-                    match recv_sync_io.recv() {
-                        Ok(k) => {
-                            let _ = current_runtime.spawn_blocking(k.into_inner());
-                        }
-                        Err(_) => {
-                            return;
-                        }
-                    };
-                });
-
-                let (send, mut recv) = tokio::sync::mpsc::unbounded_channel();
-                let job_executor = tokio::spawn(async move {
-                    loop {
-                        let j: Option<darpi::job::FutureJob> = recv.recv().await;
-                        match j {
-                            Some(j) => j.into_inner().await,
-                            None => return,
-                        }
-                    }
-                });
-
                 let make_svc = darpi::service::make_service_fn(move |_conn| {
                     let inner_module = std::sync::Arc::clone(&module);
                     let inner_handlers = std::sync::Arc::clone(&handlers);
-                    let inner_send = send.clone();
-                    let inner_send_cpu_job = send_cpu_job.clone();
-                    let inner_send_sync_io = send_sync_io.clone();
+
                     async move {
                         Ok::<_, std::convert::Infallible>(darpi::service::service_fn(move |r: darpi::Request<darpi::Body>| {
                             use darpi::futures::FutureExt;
@@ -398,9 +371,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                             use darpi::Handler;
                             let inner_module = std::sync::Arc::clone(&inner_module);
                             let inner_handlers = std::sync::Arc::clone(&inner_handlers);
-                            let inner_send = inner_send.clone();
-                            let inner_send_cpu_job = inner_send_cpu_job.clone();
-                            let inner_send_sync_io = inner_send_sync_io.clone();
+
                             async move {
                                 let route = r.uri().path().to_string();
                                 let method = r.method().clone();
@@ -444,15 +415,7 @@ pub(crate) fn make_app(config: Config) -> Result<TokenStream, SynError> {
                 });
 
                 let server = darpi::Server::bind(&address).serve(make_svc);
-                let res = async {
-                let (r1, r2) = tokio::join!(job_executor, server);
-                    r1.unwrap();
-                    r2.unwrap();
-
-                    let _ = sync_job_executor.join().unwrap();
-                    let _ = sync_io_job_executor.join().unwrap();
-                };
-                Ok(res.await)
+                server.await
              }
         }
     };
@@ -568,9 +531,6 @@ fn make_handlers(handlers: Punctuated<Handler, token::Comma>) -> Result<HandlerT
                     container: inner_module.clone(),
                     body: body,
                     route_args: handler.1.1,
-                    async_job_sender: inner_send.clone(),
-                    cpu_job_sender: inner_send_cpu_job.clone(),
-                    sync_io_job_sender: inner_send_sync_io.clone(),
                 };
                 Handler::call(&#variant_value, args).await
             }

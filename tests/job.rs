@@ -1,4 +1,4 @@
-use darpi::job::{CpuJob, FutureJob, IOBlockingJob, Job, JobExt, SenderExt};
+use darpi::job::{CpuJob, FutureJob, IOBlockingJob, Job};
 use darpi::{
     app, from_path, handler, job_factory, logger::DefaultFormat, middleware, Body, Json, Method,
     Query, RequestParts, Response,
@@ -8,8 +8,6 @@ use env_logger;
 use serde::{Deserialize, Serialize};
 use shaku::module;
 use std::convert::Infallible;
-use std::sync::mpsc::Sender;
-use tokio::sync::mpsc::UnboundedSender;
 
 fn make_container() -> Container {
     let module = Container::builder().build();
@@ -35,78 +33,64 @@ async fn first_async_job() -> FutureJob {
 }
 
 #[job_factory(Response)]
-async fn first_sync_job(#[response] r: &Response<Body>) -> Job {
+async fn first_sync_job(#[response] r: &Response<Body>) -> IOBlockingJob {
     let status_code = r.status();
-    {
-        move || {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            println!(
-                "first_sync_job in the background for a request with status {}",
-                status_code
-            );
-        }
-    }
-    .io_blocking()
+    let job = move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        println!(
+            "first_sync_job in the background for a request with status {}",
+            status_code
+        );
+    };
+    job.into()
 }
 
 #[job_factory(Response)]
 async fn first_sync_job1() -> CpuJob {
-    {
-        || {
+    let job = || {
+        let mut r = 0;
+        for _ in 0..10000000 {
+            r += 1;
+        }
+        println!("first_sync_job1 finished in the background. {}", r)
+    };
+    job.into()
+}
+
+#[job_factory(Response)]
+async fn first_sync_io_job() -> IOBlockingJob {
+    let job = || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        println!("sync io finished in the background");
+    };
+    job.into()
+}
+
+#[handler]
+async fn hello_world(#[request_parts] rp: &RequestParts) -> &'static str {
+    if rp.headers.get("destroy-cpu-header").is_some() {
+        let job = || {
             let mut r = 0;
             for _ in 0..10000000 {
                 r += 1;
             }
             println!("first_sync_job1 finished in the background. {}", r)
-        }
-    }
-    .into()
-}
-
-#[job_factory(Response)]
-async fn first_sync_io_job() -> IOBlockingJob {
-    {
-        || {
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            println!("sync io finished in the background");
-        }
-    }
-    .into()
-}
-
-#[handler]
-async fn hello_world(
-    #[request_parts] rp: &RequestParts,
-    #[cpu] cpu_job_queue: Sender<CpuJob>,
-    #[future] _fut_job_queue: UnboundedSender<FutureJob>,
-    #[blocking] _block_job_queue: Sender<IOBlockingJob>,
-) -> &'static str {
-    if rp.headers.get("destroy-cpu-header").is_some() {
-        let cpu_job: CpuJob = {
-            || {
-                let mut r = 0;
-                for _ in 0..10000000 {
-                    r += 1;
-                }
-                println!("first_sync_job1 finished in the background. {}", r)
-            }
-        }
-        .into();
-
-        cpu_job_queue.send(cpu_job).expect("ohh noes!");
+        };
+        darpi::spawn(CpuJob::from(job)).await.expect("ohh noes");
     }
 
     "hello world"
 }
 
 #[handler]
-async fn hello_world1(#[blocking] job_queue: Sender<IOBlockingJob>) -> String {
-    let secs = job_queue
-        .oneshot(move || {
-            let secs = 2;
-            std::thread::sleep(std::time::Duration::from_secs(secs));
-            secs
-        })
+async fn hello_world1() -> String {
+    let get_secs = move || {
+        let secs = 2;
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+        secs
+    };
+
+    let secs = darpi::oneshot(IOBlockingJob::from(get_secs))
         .await
         .expect("ohh noes")
         .await

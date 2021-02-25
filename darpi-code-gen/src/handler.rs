@@ -147,13 +147,22 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     jobs_req.push(quote! {
                         match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await.into() {
                             darpi::job::Job::CpuBound(function) => {
-                                args.cpu_job_sender.send(function).unwrap_or(());
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue CpuBound job err: {}", e);
+                                }
                             }
                             darpi::job::Job::IOBlocking(function) => {
-                                args.sync_io_job_sender.send(function).unwrap_or(());
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue IOBlocking job err: {}", e);
+                                }
                             }
                             darpi::job::Job::Future(fut) => {
-                                args.async_job_sender.send(fut).unwrap_or(());
+                                let res = darpi::spawn(fut).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue Future job err: {}", e);
+                                }
                             }
                         };
                     });
@@ -188,13 +197,22 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                     jobs_res.push(quote! {
                         match #name::call(&rb, args.container.clone(), #m_args).await.into() {
                             darpi::job::Job::CpuBound(function) => {
-                                args.cpu_job_sender.send(function).unwrap_or(());
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue CpuBound job err: {}", e);
+                                }
                             }
                             darpi::job::Job::IOBlocking(function) => {
-                                args.sync_io_job_sender.send(function).unwrap_or(());
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue IOBlocking job err: {}", e);
+                                }
                             }
                             darpi::job::Job::Future(fut) => {
-                                args.async_job_sender.send(fut).unwrap_or(());
+                                let res = darpi::spawn(fut).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue Future job err: {}", e);
+                                }
                             }
                         };
                     });
@@ -653,24 +671,6 @@ fn make_handler_args(
                     let #arg_name: #ttype = #module_ident.resolve();
                 };
                 return Ok(HandlerArgs::Module(arg_name, method_resolve));
-            }
-            if attr_ident == "cpu" {
-                let method_resolve = quote! {
-                    let #arg_name = args.cpu_job_sender.clone();
-                };
-                return Ok(HandlerArgs::JobChan(arg_name, method_resolve));
-            }
-            if attr_ident == "blocking" {
-                let method_resolve = quote! {
-                    let #arg_name = args.sync_io_job_sender.clone();
-                };
-                return Ok(HandlerArgs::JobChan(arg_name, method_resolve));
-            }
-            if attr_ident == "future" {
-                let method_resolve = quote! {
-                    let #arg_name = args.async_job_sender.clone();
-                };
-                return Ok(HandlerArgs::JobChan(arg_name, method_resolve));
             }
         }
 

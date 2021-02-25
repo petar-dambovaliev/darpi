@@ -9,6 +9,7 @@ pub use darpi_web::{
     middleware::ResponseMiddleware, request, response, xml::Xml, yaml::Yaml, Json,
 };
 
+use crate::job::Job;
 pub use async_trait::async_trait;
 pub use chrono;
 pub use darpi_route::{ReqRoute, Route};
@@ -21,7 +22,10 @@ use serde::{de, Deserialize, Deserializer};
 pub use serde_json;
 use std::fmt::Display;
 use std::str::FromStr;
+use std::sync::mpsc::{SendError, Sender};
 pub use tokio;
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 
 pub fn from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
 where
@@ -31,4 +35,65 @@ where
 {
     let s = String::deserialize(deserializer)?;
     T::from_str(&s).map_err(de::Error::custom)
+}
+
+pub async fn oneshot<T>(job: impl Into<Job<T>>) -> Result<Receiver<T>, SendError<Job<T>>>
+where
+    T: Send + 'static,
+{
+    let job = job.into();
+    match job {
+        Job::Future(fut) => {
+            let (otx, recv) = oneshot::channel();
+            let handle = tokio::runtime::Handle::current();
+            handle.spawn(async {
+                let _ = otx.send(fut.into_inner().await);
+            });
+            Ok(recv)
+        }
+        Job::CpuBound(cpu) => {
+            let (otx, recv) = oneshot::channel();
+            rayon::spawn(move || {
+                let _ = otx.send(cpu.into_inner()());
+            });
+            Ok(recv)
+        }
+        Job::IOBlocking(io_blocking) => {
+            let (otx, recv) = oneshot::channel();
+            let handle = tokio::runtime::Handle::current();
+            handle.spawn_blocking(move || {
+                let _ = otx.send(io_blocking.into_inner()());
+            });
+            Ok(recv)
+        }
+    }
+}
+
+pub async fn spawn<T>(job: impl Into<Job<T>>) -> Result<(), SendError<Job<T>>>
+where
+    T: Send + 'static,
+{
+    let job = job.into();
+    match job {
+        Job::Future(fut) => {
+            let handle = tokio::runtime::Handle::current();
+            handle.spawn(async {
+                fut.into_inner().await;
+            });
+            Ok(())
+        }
+        Job::CpuBound(cpu) => {
+            rayon::spawn(move || {
+                cpu.into_inner()();
+            });
+            Ok(())
+        }
+        Job::IOBlocking(io_blocking) => {
+            let handle = tokio::runtime::Handle::current();
+            handle.spawn_blocking(move || {
+                io_blocking.into_inner()();
+            });
+            Ok(())
+        }
+    }
 }

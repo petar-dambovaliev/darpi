@@ -1,12 +1,9 @@
-use crate::job;
 use crate::{Body, Response};
 use async_trait::async_trait;
 use http::request::Parts as RequestParts;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::sync::mpsc::Sender;
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedSender;
 
 #[allow(dead_code)]
 pub struct Args<'a, C> {
@@ -14,9 +11,6 @@ pub struct Args<'a, C> {
     pub container: Arc<C>,
     pub body: Body,
     pub route_args: HashMap<&'a str, &'a str>,
-    pub async_job_sender: UnboundedSender<job::FutureJob>,
-    pub cpu_job_sender: Sender<job::CpuJob>,
-    pub sync_io_job_sender: Sender<job::IOBlockingJob>,
 }
 
 #[async_trait]
