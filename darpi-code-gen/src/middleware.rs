@@ -315,6 +315,15 @@ fn make_handler_arg(
 
     let arg_name = format_ident!("arg_{:x}", i);
 
+    if tp.attrs.len() != 1 {
+        return Err(Error::new_spanned(
+            tp,
+            format!("each argument should have one attribute to define its provider"),
+        )
+        .to_compile_error()
+        .into());
+    }
+
     let attr = tp.attrs.first().unwrap();
     let attr_ident = attr.path.get_ident().unwrap();
     let is_request = middleware_type == "Request";
@@ -379,8 +388,8 @@ fn make_handler_arg(
         return Ok(HandlerArg::Module(arg_name, method_resolve));
     }
 
-    Err(Error::new(
-        Span::call_site(),
+    Err(Error::new_spanned(
+        attr_ident,
         format!(
             "unsupported attribute #[{}] type {}",
             attr_ident,

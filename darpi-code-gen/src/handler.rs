@@ -577,11 +577,12 @@ fn make_handler_args(
 
     let arg_name = format_ident!("arg_{:x}", i);
     if tp.attrs.len() != 1 {
-        return Err(
-            Error::new(Span::call_site(), format!("expected 1 attribute macro"))
-                .to_compile_error()
-                .into(),
-        );
+        return Err(Error::new_spanned(
+            tp,
+            format!("each argument should have one attribute to define its provider"),
+        )
+        .to_compile_error()
+        .into());
     }
 
     let attr = tp.attrs.first().expect("no handler attr");
@@ -743,9 +744,14 @@ fn make_handler_args(
             }
         }
     }
-    Err(Error::new(
-        Span::call_site(),
-        format!("unsupported type {}", ttype.to_token_stream().to_string()),
+    let attr_ident = attr.path.get_ident().unwrap();
+    Err(Error::new_spanned(
+        attr_ident,
+        format!(
+            "unsupported attribute #[{}] type {}",
+            attr_ident,
+            ttype.to_token_stream().to_string()
+        ),
     )
     .to_compile_error()
     .into())
