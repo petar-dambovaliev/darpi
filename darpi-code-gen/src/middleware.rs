@@ -1,11 +1,11 @@
 use crate::handler::MODULE_PREFIX;
+use crate::{make_handler_arg, HandlerArg};
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, TokenStream as TokenStream2};
+use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
 use quote::{ToTokens, TokenStreamExt};
 use syn::{
-    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, Pat, PatType, PathArguments,
-    ReturnType, Type,
+    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PathArguments, ReturnType, Type,
 };
 
 pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -232,7 +232,8 @@ fn make_args(func: &mut ItemFn, middleware_type: &String) -> Result<CallArgs, To
 
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
-            let h_args = match make_handler_arg(tp, i, &module_ident, middleware_type) {
+            let h_args = match make_handler_arg(tp, i, &module_ident, middleware_type, "middleware")
+            {
                 Ok(k) => k,
                 Err(e) => return Err(e),
             };
@@ -293,117 +294,4 @@ fn make_args(func: &mut ItemFn, middleware_type: &String) -> Result<CallArgs, To
         handler_bounds,
         handler_gen_types,
     })
-}
-
-enum HandlerArg {
-    Handler(
-        bool,
-        Vec<proc_macro2::TokenStream>,
-        Ident,
-        proc_macro2::TokenStream,
-        proc_macro2::TokenStream,
-    ),
-    Module(Ident, proc_macro2::TokenStream),
-    Permanent(proc_macro2::TokenStream, proc_macro2::TokenStream),
-}
-
-fn make_handler_arg(
-    tp: &PatType,
-    i: u32,
-    module_ident: &Ident,
-    middleware_type: &String,
-) -> Result<HandlerArg, TokenStream> {
-    let ttype = &tp.ty;
-
-    let arg_name = format_ident!("arg_{:x}", i);
-
-    if tp.attrs.len() != 1 {
-        return Err(Error::new_spanned(
-            tp,
-            format!("each argument should have one attribute to define its provider"),
-        )
-        .to_compile_error()
-        .into());
-    }
-
-    let attr = tp.attrs.first().unwrap();
-    let attr_ident = attr.path.get_ident().unwrap();
-    let is_request = middleware_type == "Request";
-
-    if let Type::Reference(rt) = *ttype.clone() {
-        if let Type::Path(_) = *rt.elem.clone() {
-            if attr_ident == "request_parts" {
-                if !is_request {
-                    return Err(Error::new_spanned(
-                        attr_ident,
-                        "request_parts only allowed for Request middleware",
-                    )
-                    .to_compile_error()
-                    .into());
-                }
-                let res = quote! {let #arg_name = p;};
-                return Ok(HandlerArg::Permanent(arg_name.to_token_stream(), res));
-            }
-            if attr_ident == "body" {
-                if !is_request {
-                    return Err(Error::new_spanned(
-                        attr_ident,
-                        "body only allowed for Request middleware",
-                    )
-                    .to_compile_error()
-                    .into());
-                }
-                let res = quote! {let mut #arg_name = b;};
-                let tt = quote! {&mut #arg_name};
-                return Ok(HandlerArg::Permanent(tt, res));
-            }
-            if attr_ident == "response" {
-                let res = quote! {let mut #arg_name = r;};
-                let tt = quote! {&mut #arg_name};
-                return Ok(HandlerArg::Permanent(tt, res));
-            }
-        }
-    }
-
-    if attr_ident == "handler" {
-        let res = quote! {
-            let #arg_name = ha
-        };
-        let mut bounds = vec![];
-        if let Type::ImplTrait(imt) = *ttype.clone() {
-            for j in imt.bounds {
-                bounds.push(quote! {#j});
-            }
-
-            let ii = if let Pat::Ident(pi) = *tp.pat.clone() {
-                pi.ident
-            } else {
-                format_ident!("Arg{}", i + 1)
-            };
-
-            let t_type = quote! {#ii};
-            return Ok(HandlerArg::Handler(true, bounds, arg_name, t_type, res));
-        }
-
-        let t_type = quote! {#ttype};
-        bounds.push(t_type.clone());
-        return Ok(HandlerArg::Handler(false, bounds, arg_name, t_type, res));
-    }
-    if attr_ident == "inject" {
-        let method_resolve = quote! {
-            let #arg_name: #ttype = #module_ident.resolve();
-        };
-        return Ok(HandlerArg::Module(arg_name, method_resolve));
-    }
-
-    Err(Error::new_spanned(
-        attr_ident,
-        format!(
-            "unsupported attribute #[{}] type {}",
-            attr_ident,
-            ttype.to_token_stream().to_string()
-        ),
-    )
-    .to_compile_error()
-    .into())
 }
