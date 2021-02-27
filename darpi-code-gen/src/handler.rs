@@ -1,6 +1,6 @@
 use crate::app::{Func, ReqResArray};
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span};
+use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
 use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use syn::parse::Parse;
 use syn::punctuated::Punctuated;
 use syn::{
     braced, parse::ParseStream, parse_macro_input, token, Error, Expr, ExprLit, FnArg, ItemFn,
-    PatType, PathSegment, Result as SynResult, Type, TypePath,
+    PatType, Path, PathSegment, Result as SynResult, Type, TypePath,
 };
 
 pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
@@ -17,7 +17,6 @@ pub(crate) const MODULE_PREFIX: &str = "module";
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
     let mut func = parse_macro_input!(input as ItemFn);
-
     if func.sig.asyncness.is_none() {
         return Error::new_spanned(func, "Only Async functions can be used as handlers")
             .to_compile_error()
@@ -33,179 +32,23 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut map = HashMap::new();
     let mut max_middleware_index = None;
     let mut dummy_t = quote! {,T};
-    let mut middleware_req = vec![];
-    let mut middleware_res = vec![];
-    let mut i = 0u16;
     let mut module_type = quote! {T};
-    let (mut req_len, mut res_len) = (0, 0);
-    let mut jobs_req = vec![];
-    let mut jobs_res = vec![];
 
-    if !args.is_empty() {
-        let arguments = parse_macro_input!(args as Config);
-        arguments.middleware.map(|r| {
-            req_len = r.request.map(|rm| {
-                for e in &rm {
-                    let name = e.get_name();
-                    let m_arg_ident = format_ident!("m_arg_{}", i);
-                    let mut sorter = 0_u16;
-                    let m_args: Vec<proc_macro2::TokenStream> =
-                        get_req_middleware_arg(e, &mut sorter, rm.len());
+    let args = if args.is_empty() {
+        None
+    } else {
+        let args = parse_macro_input!(args as Config);
+        Some(args)
+    };
+    let ArgsCall {
+        mut middleware_call,
+        job_call,
+        container,
+    } = make_args_call(args);
 
-                    let m_args = if m_args.len() > 1 {
-                        quote! {(#(#m_args ,)*)}
-                    } else if m_args.len() == 1 {
-                        quote! {#(#m_args ,)*}
-                    } else {
-                        quote! {()}
-                    };
-
-                    middleware_req.push((sorter, quote! {
-                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, #m_args).await {
-                        Ok(k) => k,
-                        Err(e) => return Ok(e.respond_err()),
-                    };
-                }));
-                    i += 1;
-                }
-
-                rm.len()
-            }).unwrap_or(0);
-
-            res_len = r.response.map(|rm| {
-                for e in &rm {
-                    let name = e.get_name();
-                    let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
-                    let mut sorter = 0_u16;
-                    let m_args: Vec<proc_macro2::TokenStream> =
-                        get_res_middleware_arg(e, &mut sorter, rm.len(), res_len);
-
-                    let m_args = if m_args.len() > 1 {
-                        quote! {(#(#m_args ,)*)}
-                    } else if m_args.len() == 1 {
-                        quote! {#(#m_args ,)*}
-                    } else {
-                        quote! {()}
-                    };
-
-                    middleware_res.push((std::u16::MAX - i - sorter, quote! {
-                    let #r_m_arg_ident = match #name::call(&mut rb, args.container.clone(), #m_args).await {
-                        Ok(k) => k,
-                        Err(e) => return Ok(e.respond_err()),
-                    };
-                }));
-                    i += 1;
-                }
-                rm.len()
-            }).unwrap_or(0);
-        });
-
-        if let Some(m) = arguments.container {
-            dummy_t = Default::default();
-            module_type = m.to_token_stream();
-        }
-        arguments.jobs.map(|jobs| {
-            jobs.request.map(|jr| {
-                jr.iter().for_each(|e| {
-                    let (name, m_args) = match e {
-                        Func::Call(ec) => {
-                            let name = ec.func.to_token_stream();
-                            let m_args: Vec<proc_macro2::TokenStream> = ec
-                                .args
-                                .iter()
-                                .map(|arg| {
-                                    quote! {#arg}
-                                })
-                                .collect();
-
-                            let q = if m_args.len() > 1 {
-                                quote! {(#(#m_args ,)*)}
-                            } else if m_args.len() == 1 {
-                                quote! {#(#m_args ,)*}
-                            } else {
-                                quote! {()}
-                            };
-
-                            (name, q)
-                        }
-                        Func::Path(path) => (path.to_token_stream(), quote! {()}),
-                    };
-
-                    jobs_req.push(quote! {
-                        match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await.into() {
-                            darpi::job::Job::CpuBound(function) => {
-                                let res = darpi::spawn(function).await;
-                                if let Err(e) = res {
-                                    log::warn!("could not queue CpuBound job err: {}", e);
-                                }
-                            }
-                            darpi::job::Job::IOBlocking(function) => {
-                                let res = darpi::spawn(function).await;
-                                if let Err(e) = res {
-                                    log::warn!("could not queue IOBlocking job err: {}", e);
-                                }
-                            }
-                            darpi::job::Job::Future(fut) => {
-                                let res = darpi::spawn(fut).await;
-                                if let Err(e) = res {
-                                    log::warn!("could not queue Future job err: {}", e);
-                                }
-                            }
-                        };
-                    });
-                });
-            });
-
-            jobs.response.map(|ref mut jr| {
-                jr.iter_mut().for_each(|e| {
-                    let (name, m_args) = match e {
-                        Func::Call(ec) => {
-                            let name = ec.func.to_token_stream();
-                            let m_args: Vec<proc_macro2::TokenStream> = ec
-                                .args
-                                .iter()
-                                .map(|arg| {
-                                    quote! {#arg}
-                                })
-                                .collect();
-
-                            let q = if m_args.len() > 1 {
-                                quote! {(#(#m_args ,)*)}
-                            } else if m_args.len() == 1 {
-                                quote! {#(#m_args ,)*}
-                            } else {
-                                quote! {()}
-                            };
-                            (name, q)
-                        }
-                        Func::Path(p) => (p.to_token_stream(), quote! {()}),
-                    };
-
-                    jobs_res.push(quote! {
-                        match #name::call(&rb, args.container.clone(), #m_args).await.into() {
-                            darpi::job::Job::CpuBound(function) => {
-                                let res = darpi::spawn(function).await;
-                                if let Err(e) = res {
-                                    log::warn!("could not queue CpuBound job err: {}", e);
-                                }
-                            }
-                            darpi::job::Job::IOBlocking(function) => {
-                                let res = darpi::spawn(function).await;
-                                if let Err(e) = res {
-                                    log::warn!("could not queue IOBlocking job err: {}", e);
-                                }
-                            }
-                            darpi::job::Job::Future(fut) => {
-                                let res = darpi::spawn(fut).await;
-                                if let Err(e) = res {
-                                    log::warn!("could not queue Future job err: {}", e);
-                                }
-                            }
-                        };
-                    });
-                });
-            });
-        });
+    if let Some(m) = container {
+        dummy_t = Default::default();
+        module_type = m.to_token_stream();
     }
 
     let mut i = 0_u32;
@@ -214,7 +57,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let mut allowed_body = true;
     for arg in func.sig.inputs.iter_mut() {
         if let FnArg::Typed(tp) = arg {
-            let h_args = match make_handler_args(tp, i, module_ident.clone(), req_len, res_len) {
+            let h_args = match make_handler_args(
+                tp,
+                i,
+                module_ident.clone(),
+                middleware_call.req_len,
+                middleware_call.res_len,
+            ) {
                 Ok(k) => k,
                 Err(e) => return e,
             };
@@ -278,13 +127,13 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         }
     }
 
-    middleware_req.sort_by(|a, b| a.0.cmp(&b.0));
-    middleware_res.sort_by(|a, b| a.0.cmp(&b.0));
+    middleware_call.req.sort_by(|a, b| a.0.cmp(&b.0));
+    middleware_call.res.sort_by(|a, b| a.0.cmp(&b.0));
 
     let middleware_req: Vec<proc_macro2::TokenStream> =
-        middleware_req.into_iter().map(|e| e.1).collect();
+        middleware_call.req.into_iter().map(|e| e.1).collect();
     let middleware_res: Vec<proc_macro2::TokenStream> =
-        middleware_res.into_iter().map(|e| e.1).collect();
+        middleware_call.res.into_iter().map(|e| e.1).collect();
 
     let func_copy = func.clone();
 
@@ -293,6 +142,9 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     } else {
         quote! { where T: 'static + Send + Sync}
     };
+
+    let jobs_req = job_call.req;
+    let jobs_res = job_call.res;
 
     let output = quote! {
         #[allow(non_camel_case_types, missing_docs)]
@@ -337,6 +189,28 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     };
     //panic!("{}", output.to_string());
     output.into()
+}
+
+struct ArgsCall {
+    middleware_call: MiddlewareCall,
+    job_call: JobCall,
+    container: Option<Path>,
+}
+
+fn make_args_call(conf: Option<Config>) -> ArgsCall {
+    let (middleware, job, container) = if let Some(args) = conf {
+        (args.middleware, args.jobs, args.container)
+    } else {
+        (None, None, None)
+    };
+
+    let middleware_call = make_call_middleware(middleware);
+    let job_call = make_job_call(job);
+    ArgsCall {
+        middleware_call,
+        job_call,
+        container,
+    }
 }
 
 fn get_req_middleware_arg(
@@ -668,6 +542,201 @@ fn make_handler_args(
     )
     .to_compile_error()
     .into())
+}
+
+#[derive(Default)]
+struct MiddlewareCall {
+    req: Vec<(u16, TokenStream2)>,
+    res: Vec<(u16, TokenStream2)>,
+    req_len: usize,
+    res_len: usize,
+}
+
+fn make_call_middleware(middleware: Option<ReqResArray>) -> MiddlewareCall {
+    let mut middleware_req = vec![];
+    let mut middleware_res = vec![];
+    let (mut req_len, mut res_len) = (0, 0);
+    let mut i = 0u16;
+
+    middleware.map(|r| {
+        req_len = r.request.map(|rm| {
+            for e in &rm {
+                let name = e.get_name();
+                let m_arg_ident = format_ident!("m_arg_{}", i);
+                let mut sorter = 0_u16;
+                let m_args: Vec<proc_macro2::TokenStream> =
+                    get_req_middleware_arg(e, &mut sorter, rm.len());
+
+                let m_args = if m_args.len() > 1 {
+                    quote! {(#(#m_args ,)*)}
+                } else if m_args.len() == 1 {
+                    quote! {#(#m_args ,)*}
+                } else {
+                    quote! {()}
+                };
+
+                middleware_req.push((sorter, quote! {
+                    let #m_arg_ident = match #name::call(&mut args.request_parts, args.container.clone(), &mut args.body, #m_args).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
+                i += 1;
+            }
+
+            rm.len()
+        }).unwrap_or(0);
+
+        res_len = r.response.map(|rm| {
+            for e in &rm {
+                let name = e.get_name();
+                let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
+                let mut sorter = 0_u16;
+                let m_args: Vec<proc_macro2::TokenStream> =
+                    get_res_middleware_arg(e, &mut sorter, rm.len(), res_len);
+
+                let m_args = if m_args.len() > 1 {
+                    quote! {(#(#m_args ,)*)}
+                } else if m_args.len() == 1 {
+                    quote! {#(#m_args ,)*}
+                } else {
+                    quote! {()}
+                };
+
+                middleware_res.push((std::u16::MAX - i - sorter, quote! {
+                    let #r_m_arg_ident = match #name::call(&mut rb, args.container.clone(), #m_args).await {
+                        Ok(k) => k,
+                        Err(e) => return Ok(e.respond_err()),
+                    };
+                }));
+                i += 1;
+            }
+            rm.len()
+        }).unwrap_or(0);
+    });
+    MiddlewareCall {
+        req: middleware_req,
+        res: middleware_res,
+        req_len,
+        res_len,
+    }
+}
+
+struct JobCall {
+    req: Vec<TokenStream2>,
+    res: Vec<TokenStream2>,
+}
+
+fn make_job_call(jobs: Option<ReqResArray>) -> JobCall {
+    let mut jobs_req = vec![];
+    let mut jobs_res = vec![];
+
+    jobs.map(|jobs| {
+        jobs.request.map(|jr| {
+            jr.iter().for_each(|e| {
+                let (name, m_args) = match e {
+                    Func::Call(ec) => {
+                        let name = ec.func.to_token_stream();
+                        let m_args: Vec<proc_macro2::TokenStream> = ec
+                            .args
+                            .iter()
+                            .map(|arg| {
+                                quote! {#arg}
+                            })
+                            .collect();
+
+                        let q = if m_args.len() > 1 {
+                            quote! {(#(#m_args ,)*)}
+                        } else if m_args.len() == 1 {
+                            quote! {#(#m_args ,)*}
+                        } else {
+                            quote! {()}
+                        };
+
+                        (name, q)
+                    }
+                    Func::Path(path) => (path.to_token_stream(), quote! {()}),
+                };
+
+                jobs_req.push(quote! {
+                        match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await.into() {
+                            darpi::job::Job::CpuBound(function) => {
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue CpuBound job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::IOBlocking(function) => {
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue IOBlocking job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::Future(fut) => {
+                                let res = darpi::spawn(fut).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue Future job err: {}", e);
+                                }
+                            }
+                        };
+                    });
+            });
+        });
+
+        jobs.response.map(|ref mut jr| {
+            jr.iter_mut().for_each(|e| {
+                let (name, m_args) = match e {
+                    Func::Call(ec) => {
+                        let name = ec.func.to_token_stream();
+                        let m_args: Vec<proc_macro2::TokenStream> = ec
+                            .args
+                            .iter()
+                            .map(|arg| {
+                                quote! {#arg}
+                            })
+                            .collect();
+
+                        let q = if m_args.len() > 1 {
+                            quote! {(#(#m_args ,)*)}
+                        } else if m_args.len() == 1 {
+                            quote! {#(#m_args ,)*}
+                        } else {
+                            quote! {()}
+                        };
+                        (name, q)
+                    }
+                    Func::Path(p) => (p.to_token_stream(), quote! {()}),
+                };
+
+                jobs_res.push(quote! {
+                        match #name::call(&rb, args.container.clone(), #m_args).await.into() {
+                            darpi::job::Job::CpuBound(function) => {
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue CpuBound job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::IOBlocking(function) => {
+                                let res = darpi::spawn(function).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue IOBlocking job err: {}", e);
+                                }
+                            }
+                            darpi::job::Job::Future(fut) => {
+                                let res = darpi::spawn(fut).await;
+                                if let Err(e) = res {
+                                    log::warn!("could not queue Future job err: {}", e);
+                                }
+                            }
+                        };
+                    });
+            });
+        });
+    });
+    JobCall {
+        req: jobs_req,
+        res: jobs_res,
+    }
 }
 
 #[derive(Debug)]
