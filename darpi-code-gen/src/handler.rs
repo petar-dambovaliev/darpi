@@ -659,6 +659,7 @@ fn make_job_call(jobs: Option<ReqResArray>) -> JobCall {
                 };
 
                 jobs_req.push(quote! {
+                        darpi::job::assert_request_job(#name);
                         match #name::call(&args.request_parts, args.container.clone(), &args.body, #m_args).await.into() {
                             darpi::job::Job::CpuBound(function) => {
                                 let res = darpi::spawn(function).await;
@@ -709,6 +710,7 @@ fn make_job_call(jobs: Option<ReqResArray>) -> JobCall {
                 };
 
                 jobs_res.push(quote! {
+                        darpi::job::assert_response_job(#name);
                         match #name::call(&rb, args.container.clone(), #m_args).await.into() {
                             darpi::job::Job::CpuBound(function) => {
                                 let res = darpi::spawn(function).await;

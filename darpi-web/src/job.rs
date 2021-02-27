@@ -22,6 +22,8 @@ where
     ) -> Self::Return;
 }
 
+pub trait IsRequest {}
+
 #[async_trait]
 pub trait ResponseJobFactory<C, T = ()>
 where
@@ -32,6 +34,8 @@ where
 
     async fn call(r: &Response<Body>, module: Arc<C>, ha: Self::HandlerArgs) -> Self::Return;
 }
+
+pub trait IsResponse {}
 
 pub enum Job<T = ()> {
     Future(FutureJob<T>),
@@ -112,3 +116,7 @@ where
         Self::Future(fut.into())
     }
 }
+
+pub fn assert_request_job(_: impl IsRequest) {}
+
+pub fn assert_response_job(_: impl IsResponse) {}

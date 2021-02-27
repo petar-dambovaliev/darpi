@@ -48,11 +48,13 @@ async fn first_sync_job(#[response] r: &Response<Body>) -> IOBlockingJob {
 #[job_factory(Response)]
 async fn first_sync_job1() -> CpuJob {
     let job = || {
-        let mut r = 0;
-        for _ in 0..10000000 {
-            r += 1;
+        for _ in 0..100 {
+            let mut r = 0;
+            for _ in 0..10000000 {
+                r += 1;
+            }
+            println!("first_sync_job1 finished in the background. {}", r);
         }
-        println!("first_sync_job1 finished in the background. {}", r)
     };
     job.into()
 }
@@ -60,13 +62,19 @@ async fn first_sync_job1() -> CpuJob {
 #[job_factory(Response)]
 async fn first_sync_io_job() -> IOBlockingJob {
     let job = || {
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        println!("sync io finished in the background");
+        for i in 0..5 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            println!("sync io finished in the background {}", i);
+        }
     };
     job.into()
 }
 
-#[handler]
+#[handler({
+    jobs: {
+        response: [first_sync_job, first_sync_job1]
+    }
+})]
 async fn hello_world(#[request_parts] rp: &RequestParts) -> &'static str {
     if rp.headers.get("destroy-cpu-header").is_some() {
         let job = || {

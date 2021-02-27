@@ -106,6 +106,8 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                     #func
                 }
 
+                impl darpi::job::IsRequest for #name {}
+
                 #[darpi::async_trait]
                 impl<C #gen_params> darpi::RequestJobFactory<C> for #name#with_brackets
                 where
@@ -135,6 +137,8 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
                 impl#with_brackets #name#with_brackets {
                     #func
                 }
+
+                impl darpi::job::IsResponse for #name {}
 
                 #[darpi::async_trait]
                 impl<C #gen_params> darpi::ResponseJobFactory<C> for #name#with_brackets
