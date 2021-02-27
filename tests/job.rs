@@ -1,4 +1,4 @@
-use darpi::job::{CpuJob, FutureJob, IOBlockingJob, Job};
+use darpi::job::{CpuJob, FutureJob, IOBlockingJob};
 use darpi::{
     app, from_path, handler, job_factory, logger::DefaultFormat, middleware, Body, Json, Method,
     Query, RequestParts, Response,
@@ -83,7 +83,7 @@ async fn hello_world(#[request_parts] rp: &RequestParts) -> &'static str {
 }
 
 #[handler]
-async fn hello_world1() -> String {
+async fn hello_world1() -> Result<String, String> {
     let get_secs = move || {
         let secs = 2;
         std::thread::sleep(std::time::Duration::from_secs(secs));
@@ -92,11 +92,11 @@ async fn hello_world1() -> String {
 
     let secs = darpi::oneshot(IOBlockingJob::from(get_secs))
         .await
-        .expect("ohh noes")
+        .map_err(|e| format!("{}", e))?
         .await
-        .expect("ohh noes");
+        .map_err(|e| format!("{}", e))?;
 
-    format!("waited {} seconds to say hello world", secs)
+    Ok(format!("waited {} seconds to say hello world", secs))
 }
 
 #[middleware(Request)]
@@ -132,8 +132,8 @@ async fn do_something123(
                                              // the Responder trait for common types
 ) -> String {
     format!(
-        "query: {} path: {} body: {} middleware: {}",
-        query.name, path.name, payload.name, m_str
+        "query: {:#?} path: {} body: {} middleware: {}",
+        query, path.name, payload.name, m_str
     )
 }
 

@@ -4,7 +4,6 @@ use futures::Future;
 use futures_util::FutureExt;
 use http::request::Parts as RequestParts;
 use std::pin::Pin;
-use std::sync::mpsc::{SendError, Sender};
 use std::sync::Arc;
 
 #[async_trait]

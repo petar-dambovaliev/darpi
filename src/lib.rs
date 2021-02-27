@@ -22,7 +22,7 @@ use serde::{de, Deserialize, Deserializer};
 pub use serde_json;
 use std::fmt::Display;
 use std::str::FromStr;
-use std::sync::mpsc::{SendError, Sender};
+use std::sync::mpsc::SendError;
 pub use tokio;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;

@@ -123,3 +123,17 @@ where
 {
     fn respond_err(e: E) -> Response<B>;
 }
+
+impl<T> ErrResponder<crate::request::QueryPayloadError, Body> for Option<T> {
+    fn respond_err(e: crate::request::QueryPayloadError) -> Response<Body> {
+        let msg = match e {
+            crate::request::QueryPayloadError::Deserialize(de) => de.to_string(),
+            crate::request::QueryPayloadError::NotExist => "missing query params".to_string(),
+        };
+
+        Response::builder()
+            .status(StatusCode::BAD_REQUEST)
+            .body(Body::from(msg))
+            .expect("this not to happen!")
+    }
+}

@@ -5,18 +5,14 @@ use quote::ToTokens;
 use quote::{format_ident, quote};
 use std::collections::HashMap;
 use syn::parse::Parse;
-//use syn::parse_quote::ParseQuote;
-//use syn::punctuated::Punctuated;
 use syn::punctuated::Punctuated;
 use syn::{
-    braced, parse::ParseStream, parse_macro_input, token, Error, Expr, ExprLit, FnArg,
-    GenericArgument, ItemFn, PatType, PathArguments, PathSegment, Result as SynResult, Type,
-    TypePath,
+    braced, parse::ParseStream, parse_macro_input, token, Error, Expr, ExprLit, FnArg, ItemFn,
+    PatType, PathSegment, Result as SynResult, Type, TypePath,
 };
 
 pub(crate) const HAS_PATH_ARGS_PREFIX: &str = "HasPathArgs";
 pub(crate) const HAS_NO_PATH_ARGS_PREFIX: &str = "HasNoPathArgs";
-//pub(crate) const NO_BODY_PREFIX: &str = "NoBody";
 pub(crate) const MODULE_PREFIX: &str = "module";
 
 pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -32,16 +28,10 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     let module_ident = quote! {args.container};
     let mut make_args = vec![];
     let mut give_args = vec![];
-    //let mut wants_body = false;
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
     let has_no_path_args = format_ident!("{}_{}", HAS_NO_PATH_ARGS_PREFIX, func_name);
-    //let mut has_path_args_checker = quote! {impl #has_no_path_args for #func_name {}};
     let mut map = HashMap::new();
     let mut max_middleware_index = None;
-    //let mut req_len = 0;
-    //let mut res_len = 0;
-
-    //let mut module = Default::default();
     let mut dummy_t = quote! {,T};
     let mut middleware_req = vec![];
     let mut middleware_res = vec![];
@@ -85,7 +75,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             res_len = r.response.map(|rm| {
                 for e in &rm {
                     let name = e.get_name();
-                    //let m_arg_ident = format_ident!("m_arg_{}", i);
                     let r_m_arg_ident = format_ident!("res_m_arg_{}", i);
                     let mut sorter = 0_u16;
                     let m_args: Vec<proc_macro2::TokenStream> =
@@ -112,8 +101,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         });
 
         if let Some(m) = arguments.container {
-            //let ttype = m.clone();
-            //module = quote! {#module_ident: std::sync::Arc<#ttype>};
             dummy_t = Default::default();
             module_type = m.to_token_stream();
         }
@@ -258,10 +245,8 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                             .into();
                     }
                     allowed_path = false;
-                    //has_path_args_checker = quote! {impl #has_path_args for #func_name {}};
                     (i, ts)
                 }
-                HandlerArgs::Option(i, ts) => (i, ts),
                 HandlerArgs::Module(i, ts) => {
                     if !dummy_t.is_empty() {
                         return Error::new_spanned(
@@ -302,12 +287,6 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
         middleware_res.into_iter().map(|e| e.1).collect();
 
     let func_copy = func.clone();
-
-    // let module_ident = if !module.is_empty() && dummy_t.is_empty() {
-    //     quote! {#module_ident.clone()}
-    // } else {
-    //     quote! {#module_ident.clone()}
-    // };
 
     let dummy_where = if dummy_t.is_empty() {
         quote! {}
@@ -356,7 +335,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
             }
         }
     };
-    //cpu_job_senderpanic!("{}", output.to_string());
+    //panic!("{}", output.to_string());
     output.into()
 }
 
@@ -451,74 +430,26 @@ fn get_res_middleware_arg(
     m_args
 }
 
-fn make_optional_query(
-    arg_name: &Ident,
-    format: Punctuated<Ident, token::Colon2>,
-    full: TypePath,
-) -> proc_macro2::TokenStream {
-    quote! {
-        let #arg_name = match &args.request_parts.uri.query() {
-            Some(q) => {
-                let #arg_name: #full  = match #format::from_query(q) {
-                    Ok(w) => w,
-                    Err(w) => None
-                };
-                #arg_name
-            }
-            None => None,
-        };
-    }
-}
-
 fn make_query(
     arg_name: &Ident,
     format: Punctuated<Ident, token::Colon2>,
     full: TypePath,
 ) -> proc_macro2::TokenStream {
-    let respond_err = make_respond_err(
-        quote! {respond_to_err},
-        quote! {darpi::request::QueryPayloadError},
-    );
     let inner = full.path.segments.last().cloned().expect("No query");
     quote! {
-        #respond_err
-        let #arg_name = match args.request_parts.uri.query() {
-            Some(q) => q,
-            None => return Ok(respond_to_err::<#inner>(darpi::request::QueryPayloadError::NotExist))
-        };
-
-        let #arg_name: #full = match #format::from_query(#arg_name) {
+        let #arg_name: #full = match #format::from_query(args.request_parts.uri.query()) {
             Ok(q) => q,
-            Err(e) => return Ok(respond_to_err::<#inner>(e))
+            Err(e) => return Ok(darpi::request::assert_respond_err::<#inner, darpi::request::QueryPayloadError>(e))
         };
-    }
-}
-
-fn make_respond_err(
-    name: proc_macro2::TokenStream,
-    err_path: proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
-    quote! {
-        fn #name<T>(e: #err_path) -> darpi::Response<darpi::Body>
-        where
-            T: darpi::response::ErrResponder<#err_path, darpi::Body>,
-        {
-            T::respond_err(e)
-        }
     }
 }
 
 fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStream {
-    let respond_err = make_respond_err(
-        quote! {respond_to_path_err},
-        quote! {darpi::request::PathError},
-    );
     quote! {
-        #respond_err
         let json_args = match darpi::serde_json::to_string(&args.route_args) {
             Ok(k) => k,
             Err(e) => {
-                return Ok(respond_to_path_err::<#last>(
+                return Ok(darpi::request::assert_respond_err::<#last, darpi::request::PathError>(
                     darpi::request::PathError::Deserialize(e.to_string()),
                 ))
             }
@@ -526,7 +457,7 @@ fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStr
         let #arg_name: #last = match darpi::serde_json::from_str(&json_args) {
             Ok(k) => k,
             Err(e) => {
-                return Ok(respond_to_path_err::<#last>(
+                return Ok(darpi::request::assert_respond_err::<#last, darpi::request::PathError>(
                     darpi::request::PathError::Deserialize(e.to_string()),
                 ))
             }
@@ -560,7 +491,6 @@ enum HandlerArgs {
     Query(Ident, proc_macro2::TokenStream),
     Body(Ident, proc_macro2::TokenStream),
     Path(Ident, proc_macro2::TokenStream),
-    Option(Ident, proc_macro2::TokenStream),
     Module(Ident, proc_macro2::TokenStream),
     Middleware(Ident, proc_macro2::TokenStream, u64, Type),
     JobChan(Ident, proc_macro2::TokenStream),
@@ -593,11 +523,9 @@ fn make_handler_args(
                 attr.path.segments.iter().map(|s| s.ident.clone()).collect();
 
             if attr_ident.is_empty() {
-                return Err(
-                    Error::new(Span::call_site(), format!("expected an attribute"))
-                        .to_compile_error()
-                        .into(),
-                );
+                return Err(Error::new_spanned(attr, format!("expected an attribute"))
+                    .to_compile_error()
+                    .into());
             }
 
             if attr_ident.len() == 1 {
@@ -621,11 +549,9 @@ fn make_handler_args(
         let attr_ident: Vec<Ident> = attr.path.segments.iter().map(|s| s.ident.clone()).collect();
 
         if attr_ident.is_empty() {
-            return Err(
-                Error::new(Span::call_site(), format!("expected an attribute"))
-                    .to_compile_error()
-                    .into(),
-            );
+            return Err(Error::new_spanned(attr, format!("expected an attribute"))
+                .to_compile_error()
+                .into());
         }
 
         if attr_ident.len() == 1 {
@@ -639,19 +565,6 @@ fn make_handler_args(
             if attr_ident == "query" {
                 let query_ttype: Punctuated<Ident, token::Colon2> =
                     tp.path.segments.iter().map(|s| s.ident.clone()).collect();
-
-                if last.ident == "Option" {
-                    if let PathArguments::AngleBracketed(ab) = &last.arguments {
-                        if let GenericArgument::Type(t) =
-                            ab.args.first().expect("no handler generic arg")
-                        {
-                            if let Type::Path(_) = t {
-                                let res = make_optional_query(&arg_name, query_ttype, tp);
-                                return Ok(HandlerArgs::Option(arg_name, res));
-                            }
-                        }
-                    }
-                }
 
                 let res = make_query(&arg_name, query_ttype, tp);
                 return Ok(HandlerArgs::Query(arg_name, res));

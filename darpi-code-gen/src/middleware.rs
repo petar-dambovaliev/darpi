@@ -1,11 +1,11 @@
 use crate::handler::MODULE_PREFIX;
 use proc_macro::TokenStream;
-use proc_macro2::{Ident, Span, TokenStream as TokenStream2};
+use proc_macro2::{Ident, TokenStream as TokenStream2};
 use quote::{format_ident, quote};
 use quote::{ToTokens, TokenStreamExt};
 use syn::{
-    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, PatType, PathArguments, ReturnType,
-    Type,
+    parse_macro_input, AttributeArgs, Error, FnArg, ItemFn, Pat, PatType, PathArguments,
+    ReturnType, Type,
 };
 
 pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -140,6 +140,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                     #func
                 }
 
+                #[allow(non_camel_case_types, missing_docs)]
                 #[darpi::async_trait]
                 impl<M #gen_params> darpi::RequestMiddleware<M> for #name#with_brackets
                 where
@@ -171,6 +172,7 @@ pub(crate) fn make_middleware(args: TokenStream, input: TokenStream) -> TokenStr
                     #func
                 }
 
+                #[allow(non_camel_case_types, missing_docs)]
                 #[darpi::async_trait]
                 impl<M #gen_params> darpi::ResponseMiddleware<M> for #name#with_brackets
                 where
@@ -372,7 +374,13 @@ fn make_handler_arg(
             for j in imt.bounds {
                 bounds.push(quote! {#j});
             }
-            let ii = format_ident!("T{}", i);
+
+            let ii = if let Pat::Ident(pi) = *tp.pat.clone() {
+                pi.ident
+            } else {
+                format_ident!("Arg{}", i + 1)
+            };
+
             let t_type = quote! {#ii};
             return Ok(HandlerArg::Handler(true, bounds, arg_name, t_type, res));
         }

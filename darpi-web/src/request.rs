@@ -54,20 +54,23 @@ impl ResponderError for QueryPayloadError {}
 impl std::error::Error for QueryPayloadError {}
 
 pub trait FromQuery<T, E> {
-    fn from_query(query_str: &str) -> Result<T, E>
+    fn from_query(query_str: Option<&str>) -> Result<T, E>
     where
         T: de::DeserializeOwned,
         E: ResponderError;
 }
 
 impl<T> FromQuery<T, QueryPayloadError> for T {
-    fn from_query(query_str: &str) -> Result<T, QueryPayloadError>
+    fn from_query(query_str: Option<&str>) -> Result<T, QueryPayloadError>
     where
         T: de::DeserializeOwned,
     {
-        serde_urlencoded::from_str::<T>(query_str)
-            .map(|val| Ok(val))
-            .unwrap_or_else(move |e| Err(QueryPayloadError::Deserialize(e)))
+        match query_str {
+            Some(query_str) => serde_urlencoded::from_str::<T>(query_str)
+                .map(|val| Ok(val))
+                .unwrap_or_else(move |e| Err(QueryPayloadError::Deserialize(e))),
+            None => Err(QueryPayloadError::NotExist),
+        }
     }
 }
 
@@ -79,3 +82,29 @@ pub enum PathError {
 
 impl ResponderError for PathError {}
 impl std::error::Error for PathError {}
+
+use crate::response;
+use hyper::Response;
+
+pub fn assert_respond_err<T, E>(e: E) -> Response<Body>
+where
+    T: response::ErrResponder<E, Body>,
+    E: std::error::Error,
+{
+    T::respond_err(e)
+}
+
+impl<T> FromQuery<Option<T>, QueryPayloadError> for T
+where
+    T: de::DeserializeOwned,
+{
+    fn from_query(query_str: Option<&str>) -> Result<Option<T>, QueryPayloadError>
+    where
+        T: FromQuery<T, QueryPayloadError>,
+    {
+        match T::from_query(query_str) {
+            Ok(t) => Ok(Some(t)),
+            Err(_) => Ok(None),
+        }
+    }
+}
