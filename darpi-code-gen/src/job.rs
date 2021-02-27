@@ -96,16 +96,19 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => Default::default(),
     };
 
+    let define = quote! {
+        #[allow(non_camel_case_types, missing_docs)]
+        pub struct #name#with_brackets#phantom_data
+        #[allow(non_camel_case_types, missing_docs)]
+        impl#with_brackets #name#with_brackets {
+            #func
+        }
+    };
+
     let tokens = match first_arg.as_str() {
         "Request" => {
             quote! {
-                #[allow(non_camel_case_types, missing_docs)]
-                pub struct #name#with_brackets#phantom_data
-                #[allow(non_camel_case_types, missing_docs)]
-                impl#with_brackets #name#with_brackets {
-                    #func
-                }
-
+                #define
                 impl darpi::job::IsRequest for #name {}
 
                 #[darpi::async_trait]
@@ -131,13 +134,7 @@ pub(crate) fn make_job(args: TokenStream, input: TokenStream) -> TokenStream {
         }
         "Response" => {
             quote! {
-                #[allow(non_camel_case_types, missing_docs)]
-                pub struct #name#with_brackets#phantom_data
-                #[allow(non_camel_case_types, missing_docs)]
-                impl#with_brackets #name#with_brackets {
-                    #func
-                }
-
+                #define
                 impl darpi::job::IsResponse for #name {}
 
                 #[darpi::async_trait]
