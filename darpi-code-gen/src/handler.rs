@@ -339,7 +339,11 @@ fn make_path_args(arg_name: &Ident, last: &PathSegment) -> proc_macro2::TokenStr
     }
 }
 
-fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream {
+fn make_json_body(
+    arg_name: &Ident,
+    path: &TypePath,
+    module_ident: &TokenStream2,
+) -> proc_macro2::TokenStream {
     let mut format = path.path.segments.clone();
     format
         .iter_mut()
@@ -352,8 +356,8 @@ fn make_json_body(arg_name: &Ident, path: &TypePath) -> proc_macro2::TokenStream
             Ok(()) => {}
             Err(e) => return Ok(e.respond_err()),
         }
-
-        let #arg_name: #path = match #format::extract(&args.request_parts.headers, args.body).await {
+        //todo pass container
+        let #arg_name: #path = match #format::extract(&args.request_parts.headers, args.body, #module_ident).await {
             Ok(q) => q,
             Err(e) => return Ok(e.respond_err())
         };
@@ -445,7 +449,7 @@ fn make_handler_args(
             }
 
             if attr_ident == "body" {
-                let res = make_json_body(&arg_name, &tp);
+                let res = make_json_body(&arg_name, &tp, &module_ident);
                 return Ok(HandlerArgs::Body(arg_name, res));
             }
 

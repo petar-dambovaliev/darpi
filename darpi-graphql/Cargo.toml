@@ -16,3 +16,4 @@ darpi = {path = "../../darpi" }
 http = "0.2.1"
 derive_more = "0.99.11"
 serde_json = "1.0.60"
+shaku = {version = "0.5.0", features = ["thread_safe"]}

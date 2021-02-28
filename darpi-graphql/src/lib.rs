@@ -1,3 +1,4 @@
+use async_graphql::http::MultipartOptions;
 use async_graphql::{ParseRequestError, Result};
 use async_trait::async_trait;
 use darpi::header::HeaderValue;
@@ -11,6 +12,9 @@ use futures_util::{StreamExt, TryStreamExt};
 use http::HeaderMap;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
 use serde_json;
+use shaku::{Component, HasComponent, Interface};
+use std::marker::PhantomData;
+use std::sync::Arc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug, Deserialize, Query)]
@@ -57,10 +61,10 @@ impl From<async_graphql::Response> for Response {
     }
 }
 
-pub struct GraphQLBody<T>(pub T);
+pub struct GraphQLBody<T, C>(pub T, PhantomData<C>);
 
-impl darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>
-    for GraphQLBody<Request>
+impl<C> darpi::response::ErrResponder<darpi::request::QueryPayloadError, darpi::Body>
+    for GraphQLBody<Request, C>
 {
     fn respond_err(e: QueryPayloadError) -> darpi::Response<Body> {
         Request::respond_err(e)
@@ -87,7 +91,7 @@ impl From<hyper::Error> for GraphQLError {
 
 impl ResponderError for GraphQLError {}
 
-impl<'de, T> Deserialize<'de> for GraphQLBody<T>
+impl<'de, T, C> Deserialize<'de> for GraphQLBody<T, C>
 where
     T: DeserializeOwned,
 {
@@ -96,16 +100,39 @@ where
         D: Deserializer<'de>,
     {
         let deser = T::deserialize(deserializer)?.into();
-        Ok(GraphQLBody(deser))
+        Ok(GraphQLBody(deser, PhantomData))
+    }
+}
+
+pub trait MultipartOptionsProvider: Interface {
+    fn get(&self) -> MultipartOptions;
+}
+
+#[derive(Component)]
+#[shaku(interface = MultipartOptionsProvider)]
+pub struct MultipartOptionsProviderImpl {
+    opts: MultipartOptions,
+}
+
+impl MultipartOptionsProvider for MultipartOptionsProviderImpl {
+    fn get(&self) -> MultipartOptions {
+        self.opts.clone()
     }
 }
 
 #[async_trait]
-impl FromRequestBody<GraphQLBody<BatchRequest>, GraphQLError> for GraphQLBody<BatchRequest> {
+impl<C: 'static> FromRequestBody<GraphQLBody<BatchRequest, C>, GraphQLError>
+    for GraphQLBody<BatchRequest, C>
+where
+    C: HasComponent<dyn MultipartOptionsProvider>,
+{
+    type Container = Arc<C>;
+
     async fn extract(
         headers: &HeaderMap,
         mut b: darpi::Body,
-    ) -> Result<GraphQLBody<BatchRequest>, GraphQLError> {
+        container: Self::Container,
+    ) -> Result<GraphQLBody<BatchRequest, C>, GraphQLError> {
         let content_type = headers
             .get(http::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
@@ -124,16 +151,20 @@ impl FromRequestBody<GraphQLBody<BatchRequest>, GraphQLError> for GraphQLBody<Ba
             }
         });
 
-        Ok(GraphQLBody(BatchRequest(
-            async_graphql::http::receive_batch_body(
-                content_type,
-                rx.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
-                    .into_async_read(),
-                Default::default(), //todo make config as argument or allow them to be passed from somewhere
-            )
-            .await
-            .map_err(|e| GraphQLError::ParseRequest(e))?,
-        )))
+        let opts = container.resolve().get();
+        Ok(GraphQLBody(
+            BatchRequest(
+                async_graphql::http::receive_batch_body(
+                    content_type,
+                    rx.map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))
+                        .into_async_read(),
+                    opts,
+                )
+                .await
+                .map_err(|e| GraphQLError::ParseRequest(e))?,
+            ),
+            PhantomData,
+        ))
     }
 }
 
@@ -148,18 +179,24 @@ impl Request {
 }
 
 #[async_trait]
-impl FromRequestBody<GraphQLBody<Request>, GraphQLError> for GraphQLBody<Request> {
+impl<C: 'static> FromRequestBody<GraphQLBody<Request, C>, GraphQLError> for GraphQLBody<Request, C>
+where
+    C: HasComponent<dyn MultipartOptionsProvider>,
+{
+    type Container = Arc<C>;
+
     async fn extract(
         headers: &HeaderMap,
         b: darpi::Body,
-    ) -> Result<GraphQLBody<Request>, GraphQLError> {
-        let res: GraphQLBody<BatchRequest> = GraphQLBody::extract(headers, b).await?;
+        container: Self::Container,
+    ) -> Result<GraphQLBody<Request, C>, GraphQLError> {
+        let res: GraphQLBody<BatchRequest, C> = GraphQLBody::extract(headers, b, container).await?;
 
         Ok(res
             .0
             .into_inner()
             .into_single()
-            .map(|r| GraphQLBody(Request(r)))
+            .map(|r| GraphQLBody(Request(r), PhantomData))
             .map_err(|e| GraphQLError::ParseRequest(e))?)
     }
 }

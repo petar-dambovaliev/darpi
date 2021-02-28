@@ -8,6 +8,7 @@ use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Error;
+use std::sync::Arc;
 use std::{fmt, ops};
 
 pub struct Json<T>(pub T);
@@ -32,6 +33,7 @@ impl<T> FromRequestBody<Json<T>, JsonErr> for Json<T>
 where
     T: DeserializeOwned + 'static,
 {
+    type Container = Arc<dyn std::any::Any + Sync + Send>;
     async fn assert_content_type(content_type: Option<&HeaderValue>) -> Result<(), JsonErr> {
         if let Some(hv) = content_type {
             if hv != "application/json" {
@@ -41,7 +43,7 @@ where
         }
         Err(JsonErr::MissingContentType)
     }
-    async fn extract(_: &HeaderMap, b: Body) -> Result<Json<T>, JsonErr> {
+    async fn extract(_: &HeaderMap, b: Body, _: Self::Container) -> Result<Json<T>, JsonErr> {
         Self::deserialize_future(b).await
     }
 }

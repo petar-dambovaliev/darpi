@@ -118,6 +118,7 @@ pub(crate) async fn roundtrip(
 }
 
 #[handler({
+    container: Container,
     middleware: {
         request: [roundtrip("blah")]
     }
@@ -144,8 +145,6 @@ async fn do_something123(
         query, path.name, payload.name, m_str
     )
 }
-
-//todo put the book url in readme
 
 //RUST_LOG=darpi=info cargo test --test job -- --nocapture
 //#[tokio::test]

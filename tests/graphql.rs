@@ -4,7 +4,7 @@ use async_graphql::{EmptyMutation, EmptySubscription, Schema};
 use darpi::{
     app, from_path, handler, logger::DefaultFormat, middleware, Body, Method, RequestParts,
 };
-use darpi_graphql::{GraphQLBody, Request, Response};
+use darpi_graphql::{GraphQLBody, MultipartOptionsProviderImpl, Request, Response};
 use darpi_middleware::{body_size_limit, log_request, log_response};
 use env_logger;
 use serde::{Deserialize, Serialize};
@@ -399,7 +399,7 @@ impl SchemaGetter for SchemaGetterImpl {
 
 module! {
     Container {
-        components = [SchemaGetterImpl],
+        components = [SchemaGetterImpl, MultipartOptionsProviderImpl],
         providers = [],
     }
 }
@@ -409,7 +409,7 @@ module! {
 })]
 async fn index_get(
     #[inject] schema: Arc<dyn SchemaGetter>,
-    #[query] req: GraphQLBody<Request>,
+    #[query] req: GraphQLBody<Request, Container>,
 ) -> Response {
     schema.get().execute(req.0.into_inner()).await.into()
 }
@@ -419,7 +419,7 @@ async fn index_get(
 })]
 async fn index_post(
     #[inject] schema: Arc<dyn SchemaGetter>,
-    #[body] req: GraphQLBody<Request>,
+    #[body] req: GraphQLBody<Request, Container>,
 ) -> Response {
     schema.get().execute(req.0.into_inner()).await.into()
 }

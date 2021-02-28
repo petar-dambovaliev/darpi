@@ -1,8 +1,10 @@
+use crate::response;
 use crate::response::ResponderError;
 use async_trait::async_trait;
 use derive_more::{Display, From};
 use http::{HeaderMap, HeaderValue};
 use hyper::Body;
+use hyper::Response;
 use serde::de;
 use serde_urlencoded;
 
@@ -12,10 +14,11 @@ where
     T: de::DeserializeOwned + 'static,
     E: ResponderError + 'static,
 {
+    type Container;
     async fn assert_content_type(_content_type: Option<&HeaderValue>) -> Result<(), E> {
         Ok(())
     }
-    async fn extract(headers: &HeaderMap, b: Body) -> Result<T, E>;
+    async fn extract(headers: &HeaderMap, b: Body, container: Self::Container) -> Result<T, E>;
 }
 
 #[derive(Debug, Display, From)]
@@ -82,9 +85,6 @@ pub enum PathError {
 
 impl ResponderError for PathError {}
 impl std::error::Error for PathError {}
-
-use crate::response;
-use hyper::Response;
 
 pub fn assert_respond_err<T, E>(e: E) -> Response<Body>
 where
