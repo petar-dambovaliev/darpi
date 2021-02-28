@@ -8,7 +8,6 @@ use hyper::Body;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_yaml::Error;
-use std::sync::Arc;
 use std::{fmt, ops};
 
 pub struct Yaml<T>(pub T);
@@ -29,7 +28,6 @@ impl<T> FromRequestBody<Yaml<T>, YamlErr> for Yaml<T>
 where
     T: DeserializeOwned + 'static,
 {
-    type Container = Arc<dyn std::any::Any + Sync + Send>;
     async fn assert_content_type(content_type: Option<&HeaderValue>) -> Result<(), YamlErr> {
         if let Some(hv) = content_type {
             if hv != "application/yaml" && hv != "text/yaml" {
@@ -39,7 +37,7 @@ where
         }
         Err(YamlErr::MissingContentType)
     }
-    async fn extract(_: &HeaderMap, b: Body, _: Self::Container) -> Result<Yaml<T>, YamlErr> {
+    async fn extract(_: &HeaderMap, b: Body) -> Result<Yaml<T>, YamlErr> {
         Self::deserialize_future(b).await
     }
 }

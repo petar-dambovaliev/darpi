@@ -1,9 +1,7 @@
 use async_graphql::connection::{query, Connection, Edge, EmptyFields};
 use async_graphql::{Context, Enum, Interface, Object};
 use async_graphql::{EmptyMutation, EmptySubscription, Schema};
-use darpi::{
-    app, from_path, handler, logger::DefaultFormat, middleware, Body, Method, RequestParts,
-};
+use darpi::{app, from_path, handler, logger::DefaultFormat, Method};
 use darpi_graphql::{GraphQLBody, MultipartOptionsProviderImpl, Request, Response};
 use darpi_middleware::{body_size_limit, log_request, log_response};
 use env_logger;
@@ -12,7 +10,6 @@ use shaku::module;
 use shaku::{Component, Interface};
 use slab::Slab;
 use std::collections::HashMap;
-use std::convert::Infallible;
 use std::sync::Arc;
 
 /// One of the films in the Star Wars Trilogy
@@ -409,7 +406,7 @@ module! {
 })]
 async fn index_get(
     #[inject] schema: Arc<dyn SchemaGetter>,
-    #[query] req: GraphQLBody<Request, Container>,
+    #[query] req: GraphQLBody<Request>,
 ) -> Response {
     schema.get().execute(req.0.into_inner()).await.into()
 }
@@ -419,7 +416,7 @@ async fn index_get(
 })]
 async fn index_post(
     #[inject] schema: Arc<dyn SchemaGetter>,
-    #[body] req: GraphQLBody<Request, Container>,
+    #[body] req: GraphQLBody<Request>,
 ) -> Response {
     schema.get().execute(req.0.into_inner()).await.into()
 }

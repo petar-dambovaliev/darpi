@@ -24,7 +24,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
     }
 
     let func_name = &func.sig.ident;
-    let module_ident = quote! {args.container};
+    let module_ident = quote! {args.container.clone()};
     let mut make_args = vec![];
     let mut give_args = vec![];
     let has_path_args = format_ident!("{}_{}", HAS_PATH_ARGS_PREFIX, func_name);
@@ -165,7 +165,7 @@ pub(crate) fn make_handler(args: TokenStream, input: TokenStream) -> TokenStream
                use shaku::HasComponent;
                #[allow(unused_imports)]
                use darpi::request::FromQuery;
-               use darpi::request::FromRequestBody;
+               use darpi::request::FromRequestBodyWithContainer;
                use darpi::response::ResponderError;
                #[allow(unused_imports)]
                use darpi::RequestMiddleware;
@@ -352,7 +352,7 @@ fn make_json_body(
     let inner = &path.path.segments.last().expect("no body").arguments;
 
     let output = quote! {
-        match #format::#inner::assert_content_type(args.request_parts.headers.get("content-type")).await {
+        match #format::#inner::assert_content_type(args.request_parts.headers.get("content-type"), #module_ident).await {
             Ok(()) => {}
             Err(e) => return Ok(e.respond_err()),
         }
